@@ -1,0 +1,901 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DataBridge — Interaction Flow Map</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    /* ═══════════════════════════════════════════════════
+       Flow Map — Design Tokens
+       ═══════════════════════════════════════════════════ */
+    :root {
+      --bg: #08090f;
+      --surface: #111322;
+      --surface-2: #181b30;
+      --surface-3: #1f2340;
+      --border: rgba(255,255,255,.06);
+      --border-hl: rgba(99,102,241,.4);
+      --text: #e2e4f0;
+      --text-dim: #7b7f9e;
+      --primary: #6366f1;
+      --primary-h: #818cf8;
+      --accent: #a855f7;
+      --cyan: #22d3ee;
+      --green: #34d399;
+      --amber: #fbbf24;
+      --rose: #fb7185;
+      --ff: 'Inter', system-ui, sans-serif;
+      --r-sm: 8px;
+      --r-md: 12px;
+      --r-lg: 16px;
+      --r-xl: 20px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { font-size: 16px; }
+    body {
+      font-family: var(--ff);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    /* ─── Toolbar ─── */
+    .toolbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 200;
+      display: flex; align-items: center; gap: 1rem;
+      padding: .6rem 1.25rem;
+      background: rgba(8,9,15,.82);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    .toolbar-brand {
+      display: flex; align-items: center; gap: .5rem;
+      font-weight: 700; font-size: .95rem;
+    }
+    .toolbar-brand svg { width: 26px; height: 26px; }
+    .toolbar-divider { width: 1px; height: 22px; background: var(--border); }
+    .toolbar-title { font-size: .8rem; color: var(--text-dim); font-weight: 500; }
+    .toolbar-right { margin-left: auto; display: flex; align-items: center; gap: .6rem; }
+
+    .tb-btn {
+      display: inline-flex; align-items: center; gap: .35rem;
+      padding: .35rem .75rem; border-radius: 999px;
+      background: rgba(255,255,255,.04); border: 1px solid var(--border);
+      color: var(--text-dim); font-size: .75rem; font-weight: 600;
+      font-family: var(--ff); cursor: pointer;
+      transition: .15s ease;
+    }
+    .tb-btn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+    .tb-btn svg { width: 14px; height: 14px; }
+    .tb-btn.active { border-color: var(--primary); color: var(--primary-h); background: rgba(99,102,241,.08); }
+
+    .zoom-display {
+      font-size: .7rem; font-weight: 600; color: var(--text-dim);
+      min-width: 42px; text-align: center;
+    }
+
+    /* ─── Sidebar — Slide list ─── */
+    .sidebar {
+      position: fixed; top: 44px; left: 0; bottom: 0;
+      width: 220px; z-index: 150;
+      background: rgba(17,19,34,.92);
+      backdrop-filter: blur(12px);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      padding: .75rem .6rem;
+      overflow-y: auto;
+    }
+    .sidebar-heading {
+      font-size: .65rem; text-transform: uppercase; letter-spacing: .08em;
+      font-weight: 700; color: var(--text-dim); margin-bottom: .6rem;
+      padding-left: .35rem;
+    }
+
+    .slide-thumb {
+      position: relative;
+      padding: .5rem;
+      border-radius: var(--r-md);
+      cursor: pointer;
+      transition: background .15s;
+      margin-bottom: .35rem;
+    }
+    .slide-thumb:hover { background: rgba(255,255,255,.03); }
+    .slide-thumb.active { background: rgba(99,102,241,.1); }
+    .slide-thumb.active::before {
+      content: '';
+      position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+      width: 3px; height: 60%; border-radius: 999px;
+      background: var(--primary);
+    }
+    .thumb-preview {
+      width: 100%; aspect-ratio: 16/10;
+      border-radius: var(--r-sm);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden; position: relative;
+    }
+    .thumb-preview img {
+      width: 100%; height: 100%; object-fit: cover; opacity: .8;
+    }
+    .thumb-label {
+      font-size: .7rem; font-weight: 600; color: var(--text-dim);
+      margin-top: .35rem; padding-left: .15rem;
+      display: flex; align-items: center; gap: .35rem;
+    }
+    .thumb-num {
+      width: 16px; height: 16px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: .55rem; font-weight: 700;
+      background: rgba(255,255,255,.06); color: var(--text-dim);
+    }
+    .slide-thumb.active .thumb-num { background: var(--primary); color: #fff; }
+    .slide-thumb.active .thumb-label { color: var(--text); }
+
+    /* ─── Canvas area ─── */
+    .canvas-area {
+      position: fixed;
+      top: 44px; left: 220px; right: 0; bottom: 0;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 20% 30%, rgba(99,102,241,.06) 0%, transparent 50%),
+        radial-gradient(circle at 80% 70%, rgba(168,85,247,.04) 0%, transparent 50%),
+        var(--bg);
+    }
+    /* Dot grid */
+    .canvas-area::before {
+      content: '';
+      position: absolute; inset: 0;
+      background-image: radial-gradient(circle, rgba(255,255,255,.04) 1px, transparent 1px);
+      background-size: 24px 24px;
+      pointer-events: none;
+    }
+
+    .canvas-scroll {
+      position: absolute; inset: 0;
+      overflow: auto;
+      cursor: grab;
+    }
+    .canvas-scroll:active { cursor: grabbing; }
+    .canvas-inner {
+      position: relative;
+      width: 4200px;
+      height: 3000px;
+    }
+
+    /* ─── Slide (full view) ─── */
+    .slide {
+      position: absolute;
+      display: none;
+      flex-direction: column;
+      gap: 0;
+    }
+    .slide.visible { display: flex; }
+
+    .slide-header {
+      display: flex; align-items: center; gap: .6rem;
+      margin-bottom: .75rem;
+    }
+    .slide-badge {
+      padding: .2rem .65rem; border-radius: 999px;
+      font-size: .65rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+    .slide-badge.screen  { background: rgba(99,102,241,.15); color: var(--primary-h); }
+    .slide-badge.action  { background: rgba(52,211,153,.12); color: var(--green); }
+    .slide-badge.state   { background: rgba(251,191,36,.12); color: var(--amber); }
+    .slide-name { font-size: .85rem; font-weight: 700; }
+
+    .slide-frame {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-xl);
+      box-shadow: 0 12px 48px rgba(0,0,0,.4);
+      overflow: hidden;
+      position: relative;
+    }
+
+    /* Hotspot overlays on the main slide */
+    .hotspot {
+      position: absolute;
+      border: 2px dashed var(--border-hl);
+      border-radius: var(--r-sm);
+      background: rgba(99,102,241,.05);
+      cursor: pointer;
+      transition: background .15s, border-color .15s, box-shadow .15s;
+      z-index: 10;
+      display: flex; align-items: flex-end; justify-content: flex-start;
+      padding: 4px 8px;
+    }
+    .hotspot:hover {
+      background: rgba(99,102,241,.12);
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(99,102,241,.15);
+    }
+    .hotspot-label {
+      font-size: .55rem; font-weight: 700; color: var(--primary-h);
+      text-transform: uppercase; letter-spacing: .04em;
+      white-space: nowrap;
+      opacity: 0;
+      transition: opacity .15s;
+    }
+    .hotspot:hover .hotspot-label { opacity: 1; }
+
+    .hotspot-dot {
+      position: absolute; right: -6px; top: 50%; transform: translateY(-50%);
+      width: 12px; height: 12px; border-radius: 50%;
+      background: var(--primary);
+      border: 2px solid var(--surface);
+      z-index: 11;
+    }
+
+    /* ─── Target card (blank "what's next") ─── */
+    .target-card {
+      position: absolute;
+      width: 300px;
+      min-height: 180px;
+      background: var(--surface);
+      border: 1px dashed rgba(255,255,255,.1);
+      border-radius: var(--r-xl);
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center;
+      padding: 1.5rem 1.25rem;
+      transition: border-color .2s, background .2s;
+    }
+    .target-card:hover {
+      border-color: rgba(255,255,255,.18);
+      background: var(--surface-2);
+    }
+    .target-card .tc-icon {
+      width: 44px; height: 44px;
+      border-radius: 50%;
+      display: grid; place-items: center;
+      margin-bottom: .65rem;
+    }
+    .target-card .tc-title {
+      font-size: .8rem; font-weight: 700; margin-bottom: .3rem;
+    }
+    .target-card .tc-desc {
+      font-size: .7rem; color: var(--text-dim); line-height: 1.5;
+    }
+    .target-card .tc-placeholder {
+      margin-top: .75rem;
+      padding: .3rem .7rem; border-radius: 999px;
+      border: 1px dashed rgba(255,255,255,.1);
+      font-size: .6rem; font-weight: 600; color: var(--text-dim);
+      text-transform: uppercase; letter-spacing: .05em;
+    }
+
+    /* ─── SVG Connectors ─── */
+    .connectors {
+      position: absolute; inset: 0;
+      pointer-events: none;
+      z-index: 5;
+    }
+    .connector-line {
+      fill: none;
+      stroke: var(--primary);
+      stroke-width: 2;
+      stroke-dasharray: 6 4;
+      opacity: .45;
+    }
+    .connector-arrow {
+      fill: var(--primary);
+      opacity: .6;
+    }
+
+    /* ─── Right Panel — details ─── */
+    .detail-panel {
+      position: fixed; top: 44px; right: 0; bottom: 0;
+      width: 280px; z-index: 150;
+      background: rgba(17,19,34,.92);
+      backdrop-filter: blur(12px);
+      border-left: 1px solid var(--border);
+      padding: 1.25rem 1rem;
+      overflow-y: auto;
+      transform: translateX(100%);
+      transition: transform .25s ease;
+    }
+    .detail-panel.open { transform: translateX(0); }
+
+    .dp-section { margin-bottom: 1.25rem; }
+    .dp-heading {
+      font-size: .6rem; text-transform: uppercase; letter-spacing: .08em;
+      color: var(--text-dim); font-weight: 700; margin-bottom: .5rem;
+    }
+    .dp-value { font-size: .8rem; font-weight: 600; }
+    .dp-tag {
+      display: inline-flex; align-items: center; gap: .3rem;
+      padding: .2rem .55rem; border-radius: 999px;
+      font-size: .65rem; font-weight: 600;
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      margin: .2rem .2rem 0 0;
+    }
+    .dp-note-box {
+      width: 100%;
+      min-height: 80px;
+      padding: .6rem .75rem;
+      border-radius: var(--r-md);
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      font-family: var(--ff);
+      font-size: .75rem;
+      resize: vertical;
+    }
+    .dp-note-box::placeholder { color: var(--text-dim); }
+
+    .dp-close {
+      position: absolute; top: .75rem; right: .75rem;
+      background: none; border: none; color: var(--text-dim);
+      cursor: pointer; width: 28px; height: 28px;
+      display: grid; place-items: center; border-radius: 50%;
+      transition: .15s;
+    }
+    .dp-close:hover { background: rgba(255,255,255,.06); color: var(--text); }
+
+    /* ─── Minimap ─── */
+    .minimap {
+      position: fixed; bottom: 16px; right: 16px;
+      width: 160px; height: 100px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      z-index: 160;
+      overflow: hidden;
+      opacity: .7;
+      transition: opacity .15s;
+    }
+    .minimap:hover { opacity: 1; }
+
+    /* ─── Helper: color utilities ─── */
+    .c-primary { color: var(--primary-h); }
+    .c-green   { color: var(--green); }
+    .c-amber   { color: var(--amber); }
+    .c-cyan    { color: var(--cyan); }
+    .c-rose    { color: var(--rose); }
+    .bg-primary { background: rgba(99,102,241,.12); }
+    .bg-green   { background: rgba(52,211,153,.1); }
+    .bg-amber   { background: rgba(251,191,36,.1); }
+    .bg-cyan    { background: rgba(34,211,238,.1); }
+    .bg-rose    { background: rgba(251,113,133,.1); }
+  </style>
+</head>
+<body>
+
+  <!-- ═══ Toolbar ═══ -->
+  <div class="toolbar">
+    <div class="toolbar-brand">
+      <svg viewBox="0 0 32 32" fill="none"><rect width="32" height="32" rx="8" fill="url(#lg)"/><path d="M9 11h14M9 16h14M9 21h14" stroke="#fff" stroke-width="2" stroke-linecap="round"/><defs><linearGradient id="lg" x1="0" y1="0" x2="32" y2="32"><stop stop-color="#6366f1"/><stop offset="1" stop-color="#a855f7"/></linearGradient></defs></svg>
+      DataBridge
+    </div>
+    <div class="toolbar-divider"></div>
+    <span class="toolbar-title">Interaction Flow Map</span>
+
+    <div class="toolbar-right">
+      <button class="tb-btn" id="btn-zoom-out" aria-label="Zoom out">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <span class="zoom-display" id="zoom-level">100%</span>
+      <button class="tb-btn" id="btn-zoom-in" aria-label="Zoom in">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      </button>
+      <div class="toolbar-divider"></div>
+      <button class="tb-btn" id="btn-fit" aria-label="Fit to screen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+        Fit
+      </button>
+      <button class="tb-btn" id="btn-back" onclick="window.location.href='index.html'">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        Back to App
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══ Sidebar ═══ -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-heading">Screens &amp; Flows</div>
+    <!-- populated by JS -->
+  </div>
+
+  <!-- ═══ Canvas ═══ -->
+  <div class="canvas-area">
+    <div class="canvas-scroll" id="canvas-scroll">
+      <div class="canvas-inner" id="canvas-inner">
+        <svg class="connectors" id="connectors" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+              <polygon class="connector-arrow" points="0 0, 8 3, 0 6" />
+            </marker>
+          </defs>
+        </svg>
+        <!-- Slides and cards are injected by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Detail Panel ═══ -->
+  <div class="detail-panel" id="detail-panel">
+    <button class="dp-close" id="dp-close" aria-label="Close panel">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div id="dp-content"></div>
+  </div>
+
+<script>
+(function() {
+  'use strict';
+
+  /* ═══════════════════════════════════════════════════════
+     DATA MODEL — Every interactive element & its targets
+     ═══════════════════════════════════════════════════════ */
+
+  const SLIDES = [
+    {
+      id: 'landing',
+      name: 'Landing Page',
+      badge: 'screen',
+      x: 120, y: 100,
+      width: 680, height: 500,
+      description: 'Main import form with all controls',
+      hotspots: [
+        {
+          id: 'hs-rdbms',
+          label: 'RDBMS Select',
+          rect: { x: 38, y: 158, w: 604, h: 48 },
+          targetId: 'tc-rdbms',
+          element: 'Select dropdown',
+          triggers: ['onChange'],
+          tags: ['form', 'database'],
+        },
+        {
+          id: 'hs-dropzone',
+          label: 'File Upload',
+          rect: { x: 38, y: 238, w: 604, h: 200 },
+          targetId: 'tc-upload',
+          element: 'Drop zone / Browse',
+          triggers: ['onDrop', 'onClick'],
+          tags: ['file', 'csv'],
+        },
+        {
+          id: 'hs-header',
+          label: 'Header Toggle',
+          rect: { x: 38, y: 30, w: 604, h: 60 },
+          targetId: 'tc-header',
+          element: 'Radio buttons (Yes / No)',
+          triggers: ['onChange'],
+          tags: ['parsing', 'option'],
+          slideRef: 'options',
+        },
+        {
+          id: 'hs-separator',
+          label: 'Separator',
+          rect: { x: 38, y: 100, w: 604, h: 50 },
+          targetId: 'tc-separator',
+          element: 'Comma chip + custom toggle',
+          triggers: ['onChange', 'onToggle'],
+          tags: ['parsing', 'delimiter'],
+          slideRef: 'options',
+        },
+        {
+          id: 'hs-table',
+          label: 'Table Select',
+          rect: { x: 38, y: 50, w: 290, h: 48 },
+          targetId: 'tc-table',
+          element: 'Table dropdown',
+          triggers: ['onChange'],
+          tags: ['database', 'target'],
+          slideRef: 'target',
+        },
+        {
+          id: 'hs-operation',
+          label: 'Operation',
+          rect: { x: 340, y: 50, w: 290, h: 48 },
+          targetId: 'tc-operation',
+          element: 'INSERT / UPDATE / UPSERT',
+          triggers: ['onChange'],
+          tags: ['database', 'action'],
+          slideRef: 'target',
+        },
+        {
+          id: 'hs-start',
+          label: 'Start Migration',
+          rect: { x: 420, y: 130, w: 210, h: 42 },
+          targetId: 'tc-start',
+          element: 'Primary CTA button',
+          triggers: ['onClick'],
+          tags: ['action', 'submit'],
+          slideRef: 'target',
+        },
+        {
+          id: 'hs-reset',
+          label: 'Reset',
+          rect: { x: 340, y: 130, w: 72, h: 42 },
+          targetId: 'tc-reset',
+          element: 'Ghost reset button',
+          triggers: ['onClick'],
+          tags: ['action', 'form'],
+          slideRef: 'target',
+        },
+      ]
+    },
+  ];
+
+  /* Sub-slide regions: the landing page areas we render as smaller cards */
+  const SUB_SLIDES = [
+    { id: 'options', name: 'Parsing Options', badge: 'state', x: 120, y: 660, width: 680, height: 190 },
+    { id: 'target',  name: 'Destination Table', badge: 'state', x: 120, y: 900, width: 680, height: 200 },
+  ];
+
+  /* The "what's next?" target cards */
+  const TARGETS = [
+    {
+      id: 'tc-rdbms', name: 'After RDBMS Selected',
+      icon: 'database', color: 'primary',
+      x: 920, y: 100,
+      desc: 'What happens when the user picks a database engine?',
+    },
+    {
+      id: 'tc-upload', name: 'After File Uploaded',
+      icon: 'file', color: 'green',
+      x: 920, y: 320,
+      desc: 'What happens when a CSV file is dropped or browsed?',
+    },
+    {
+      id: 'tc-header', name: 'After Header Choice',
+      icon: 'toggle', color: 'cyan',
+      x: 920, y: 540,
+      desc: 'What should change when the user toggles header row?',
+    },
+    {
+      id: 'tc-separator', name: 'After Separator Set',
+      icon: 'settings', color: 'amber',
+      x: 920, y: 720,
+      desc: 'What happens when a custom separator is entered?',
+    },
+    {
+      id: 'tc-table', name: 'After Table Selected',
+      icon: 'table', color: 'primary',
+      x: 920, y: 900,
+      desc: 'What should happen when the target table is chosen?',
+    },
+    {
+      id: 'tc-operation', name: 'After Operation Chosen',
+      icon: 'action', color: 'amber',
+      x: 1260, y: 900,
+      desc: 'What changes when INSERT vs UPDATE is selected?',
+    },
+    {
+      id: 'tc-start', name: 'After Start Migration',
+      icon: 'rocket', color: 'green',
+      x: 1260, y: 100,
+      desc: 'What does the migration process look like?',
+    },
+    {
+      id: 'tc-reset', name: 'After Reset',
+      icon: 'refresh', color: 'rose',
+      x: 1260, y: 320,
+      desc: 'How should the form behave after a reset?',
+    },
+  ];
+
+  const ICONS = {
+    database: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>',
+    file: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+    toggle: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="5" width="22" height="14" rx="7"/><circle cx="8" cy="12" r="3"/></svg>',
+    settings: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1.08 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001.08 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1.08z"/></svg>',
+    table: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/></svg>',
+    action: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>',
+    rocket: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 3 0 3 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-3 0-3"/></svg>',
+    refresh: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>',
+  };
+
+  /* ═══════════════════════════════════════════════════════
+     RENDER
+     ═══════════════════════════════════════════════════════ */
+
+  const canvas = document.getElementById('canvas-inner');
+  const svgConnectors = document.getElementById('connectors');
+  const sidebar = document.getElementById('sidebar');
+  const detailPanel = document.getElementById('detail-panel');
+  const dpContent = document.getElementById('dp-content');
+
+  /* ─── Render sidebar thumbnails ─── */
+  const allSlideEntries = [
+    ...SLIDES.map(s => ({ id: s.id, name: s.name, badge: s.badge })),
+    ...SUB_SLIDES.map(s => ({ id: s.id, name: s.name, badge: s.badge })),
+    { id: 'targets', name: 'Next Actions', badge: 'action' },
+  ];
+
+  allSlideEntries.forEach((entry, i) => {
+    const el = document.createElement('div');
+    el.className = 'slide-thumb' + (i === 0 ? ' active' : '');
+    el.dataset.slideId = entry.id;
+    el.innerHTML = `
+      <div class="thumb-preview">
+        <span style="font-size:.55rem;color:var(--text-dim);font-weight:600;text-transform:uppercase;letter-spacing:.05em">${entry.badge}</span>
+      </div>
+      <div class="thumb-label">
+        <span class="thumb-num">${i + 1}</span>
+        ${entry.name}
+      </div>
+    `;
+    el.addEventListener('click', () => {
+      document.querySelectorAll('.slide-thumb').forEach(t => t.classList.remove('active'));
+      el.classList.add('active');
+      scrollToElement(entry.id);
+    });
+    sidebar.appendChild(el);
+  });
+
+  /* ─── Render main slide (landing page) ─── */
+  SLIDES.forEach(slide => {
+    const el = document.createElement('div');
+    el.className = 'slide visible';
+    el.id = `slide-${slide.id}`;
+    el.style.left = slide.x + 'px';
+    el.style.top = slide.y + 'px';
+
+    // Get hotspots for this slide only (no slideRef)
+    const slideHotspots = slide.hotspots.filter(h => !h.slideRef);
+
+    el.innerHTML = `
+      <div class="slide-header">
+        <span class="slide-badge ${slide.badge}">${slide.badge}</span>
+        <span class="slide-name">${slide.name}</span>
+      </div>
+      <div class="slide-frame" style="width:${slide.width}px;height:${slide.height}px;">
+        <iframe src="index.html" style="width:${slide.width}px;height:${slide.height}px;border:none;pointer-events:none;transform-origin:top left;" title="${slide.name}"></iframe>
+        ${slideHotspots.map(h => `
+          <div class="hotspot"
+               id="${h.id}"
+               data-target="${h.targetId}"
+               style="left:${h.rect.x}px;top:${h.rect.y}px;width:${h.rect.w}px;height:${h.rect.h}px;">
+            <span class="hotspot-label">${h.label}</span>
+            <span class="hotspot-dot"></span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    canvas.appendChild(el);
+  });
+
+  /* ─── Render sub-slides (options & target sections) ─── */
+  SUB_SLIDES.forEach(sub => {
+    const el = document.createElement('div');
+    el.className = 'slide visible';
+    el.id = `slide-${sub.id}`;
+    el.style.left = sub.x + 'px';
+    el.style.top = sub.y + 'px';
+
+    const hotspots = SLIDES[0].hotspots.filter(h => h.slideRef === sub.id);
+
+    el.innerHTML = `
+      <div class="slide-header">
+        <span class="slide-badge ${sub.badge}">${sub.badge}</span>
+        <span class="slide-name">${sub.name}</span>
+      </div>
+      <div class="slide-frame" style="width:${sub.width}px;height:${sub.height}px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;">
+        <span style="font-size:.75rem;color:var(--text-dim);font-weight:600;">Section of Landing Page</span>
+        ${hotspots.map(h => `
+          <div class="hotspot"
+               id="${h.id}"
+               data-target="${h.targetId}"
+               style="left:${h.rect.x}px;top:${h.rect.y}px;width:${h.rect.w}px;height:${h.rect.h}px;">
+            <span class="hotspot-label">${h.label}</span>
+            <span class="hotspot-dot"></span>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    canvas.appendChild(el);
+  });
+
+  /* ─── Render target cards ─── */
+  TARGETS.forEach(tc => {
+    const el = document.createElement('div');
+    el.className = 'target-card';
+    el.id = tc.id;
+    el.style.left = tc.x + 'px';
+    el.style.top = tc.y + 'px';
+    el.innerHTML = `
+      <div class="tc-icon bg-${tc.color}">
+        <span class="c-${tc.color}">${ICONS[tc.icon]}</span>
+      </div>
+      <div class="tc-title">${tc.name}</div>
+      <div class="tc-desc">${tc.desc}</div>
+      <div class="tc-placeholder">Your design here</div>
+    `;
+    el.addEventListener('click', () => openDetail(tc));
+    canvas.appendChild(el);
+  });
+
+  /* ─── Draw connector lines ─── */
+  function drawConnectors() {
+    // Clear existing
+    svgConnectors.querySelectorAll('.conn-path').forEach(p => p.remove());
+
+    SLIDES[0].hotspots.forEach(h => {
+      const hsEl = document.getElementById(h.id);
+      const tcEl = document.getElementById(h.targetId);
+      if (!hsEl || !tcEl) return;
+
+      const hsRect = getCanvasRect(hsEl);
+      const tcRect = getCanvasRect(tcEl);
+
+      const x1 = hsRect.right;
+      const y1 = hsRect.top + hsRect.height / 2;
+      const x2 = tcRect.left;
+      const y2 = tcRect.top + tcRect.height / 2;
+      const cx = (x1 + x2) / 2;
+
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('class', 'connector-line conn-path');
+      path.setAttribute('d', `M${x1},${y1} C${cx},${y1} ${cx},${y2} ${x2},${y2}`);
+      path.setAttribute('marker-end', 'url(#arrowhead)');
+      svgConnectors.appendChild(path);
+    });
+  }
+
+  function getCanvasRect(el) {
+    return {
+      left: el.offsetLeft + (el.offsetParent ? el.offsetParent.offsetLeft : 0),
+      top: el.offsetTop + (el.offsetParent ? el.offsetParent.offsetTop : 0),
+      width: el.offsetWidth,
+      height: el.offsetHeight,
+      get right() { return this.left + this.width; },
+      get bottom() { return this.top + this.height; },
+    };
+  }
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(drawConnectors);
+  });
+
+  /* ─── Hotspot click → open detail panel ─── */
+  document.querySelectorAll('.hotspot').forEach(hs => {
+    hs.addEventListener('click', () => {
+      const allHs = SLIDES[0].hotspots;
+      const data = allHs.find(h => h.id === hs.id);
+      if (data) {
+        const tc = TARGETS.find(t => t.id === data.targetId);
+        openDetailFromHotspot(data, tc);
+      }
+    });
+  });
+
+  function openDetail(tc) {
+    dpContent.innerHTML = `
+      <div class="dp-section">
+        <div class="dp-heading">Target Action</div>
+        <div class="dp-value">${tc.name}</div>
+      </div>
+      <div class="dp-section">
+        <div class="dp-heading">Question</div>
+        <div style="font-size:.75rem;color:var(--text-dim);line-height:1.6">${tc.desc}</div>
+      </div>
+      <div class="dp-section">
+        <div class="dp-heading">Your Notes</div>
+        <textarea class="dp-note-box" placeholder="Write your design decisions here…" data-note-id="${tc.id}"></textarea>
+      </div>
+    `;
+    loadNote(tc.id);
+    detailPanel.classList.add('open');
+  }
+
+  function openDetailFromHotspot(hs, tc) {
+    dpContent.innerHTML = `
+      <div class="dp-section">
+        <div class="dp-heading">Element</div>
+        <div class="dp-value">${hs.label}</div>
+      </div>
+      <div class="dp-section">
+        <div class="dp-heading">Type</div>
+        <div style="font-size:.75rem;color:var(--text-dim);">${hs.element}</div>
+      </div>
+      <div class="dp-section">
+        <div class="dp-heading">Events</div>
+        <div>${hs.triggers.map(t => `<span class="dp-tag">${t}</span>`).join('')}</div>
+      </div>
+      <div class="dp-section">
+        <div class="dp-heading">Tags</div>
+        <div>${hs.tags.map(t => `<span class="dp-tag">${t}</span>`).join('')}</div>
+      </div>
+      ${tc ? `
+      <div class="dp-section" style="border-top:1px solid var(--border);padding-top:1rem;margin-top:.5rem;">
+        <div class="dp-heading">→ Leads To</div>
+        <div class="dp-value" style="font-size:.75rem;">${tc.name}</div>
+        <div style="font-size:.7rem;color:var(--text-dim);margin-top:.25rem;">${tc.desc}</div>
+      </div>
+      <div class="dp-section">
+        <div class="dp-heading">Your Notes</div>
+        <textarea class="dp-note-box" placeholder="Write your design decisions here…" data-note-id="${tc.id}"></textarea>
+      </div>
+      ` : ''}
+    `;
+    if (tc) loadNote(tc.id);
+    detailPanel.classList.add('open');
+  }
+
+  /* ─── Notes persistence (localStorage) ─── */
+  function loadNote(id) {
+    const ta = dpContent.querySelector(`textarea[data-note-id="${id}"]`);
+    if (!ta) return;
+    const saved = localStorage.getItem('db-flow-note-' + id);
+    if (saved) ta.value = saved;
+    ta.addEventListener('input', () => {
+      localStorage.setItem('db-flow-note-' + id, ta.value);
+    });
+  }
+
+  document.getElementById('dp-close').addEventListener('click', () => {
+    detailPanel.classList.remove('open');
+  });
+
+  /* ─── Canvas pan ─── */
+  const scrollEl = document.getElementById('canvas-scroll');
+  let isPanning = false, panStart = { x: 0, y: 0 }, scrollStart = { x: 0, y: 0 };
+
+  scrollEl.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.hotspot, .target-card, .tb-btn, .slide-thumb')) return;
+    isPanning = true;
+    panStart = { x: e.clientX, y: e.clientY };
+    scrollStart = { x: scrollEl.scrollLeft, y: scrollEl.scrollTop };
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!isPanning) return;
+    scrollEl.scrollLeft = scrollStart.x - (e.clientX - panStart.x);
+    scrollEl.scrollTop  = scrollStart.y - (e.clientY - panStart.y);
+  });
+  window.addEventListener('mouseup', () => { isPanning = false; });
+
+  /* ─── Zoom (simple CSS scale) ─── */
+  let zoom = 1;
+  const zoomDisplay = document.getElementById('zoom-level');
+  const canvasInner = document.getElementById('canvas-inner');
+
+  function applyZoom() {
+    canvasInner.style.transform = `scale(${zoom})`;
+    canvasInner.style.transformOrigin = '0 0';
+    zoomDisplay.textContent = Math.round(zoom * 100) + '%';
+  }
+  document.getElementById('btn-zoom-in').addEventListener('click', () => { zoom = Math.min(2, zoom + .1); applyZoom(); });
+  document.getElementById('btn-zoom-out').addEventListener('click', () => { zoom = Math.max(.3, zoom - .1); applyZoom(); });
+  document.getElementById('btn-fit').addEventListener('click', () => { zoom = .65; applyZoom(); scrollEl.scrollLeft = 0; scrollEl.scrollTop = 0; });
+
+  /* ─── Scroll to element ─── */
+  function scrollToElement(id) {
+    let el;
+    if (id === 'targets') {
+      el = document.getElementById(TARGETS[0].id);
+    } else {
+      el = document.getElementById('slide-' + id);
+    }
+    if (!el) return;
+    scrollEl.scrollTo({
+      left: Math.max(0, el.offsetLeft - 60),
+      top: Math.max(0, el.offsetTop - 60),
+      behavior: 'smooth'
+    });
+  }
+
+  /* Initial fit */
+  setTimeout(() => {
+    zoom = 0.85;
+    applyZoom();
+  }, 100);
+
+})();
+</script>
+
+</body>
+</html>

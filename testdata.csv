@@ -1,0 +1,5 @@
+﻿testID,testName,testCountries_ID,testWebsite,testContactEmail,testDesc,testNote,testExtra
+1,KurdTech O'Brian,105,https://kurdtech.iq,info@kurdtech.iq,Leading Kurdistan-based electronics distributor & assembler (Erbil),note1,xt4
+2,IraqTel,106,https://iraqtel.com,sales@iraqtel.com,National telecom & device importer (Baghdad),note2,xt3
+3,Sulaymani Electronics,107,,contact@sulaymanielectronics.iq,Regional assembler of TVs & home appliances (Sulaymaniyah),note3,xt2
+4,Duhok Digital,108,https://duhokdigital.com,support@duhokdigital.com,Distributor of laptops & accessories in Duhok,note4,xt1
