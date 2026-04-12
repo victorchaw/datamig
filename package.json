@@ -1,0 +1,9 @@
+{
+  "name": "datamig",
+  "version": "2.0.0",
+  "description": "Data Migration Tool — CSV to any RDBMS via SQLAlchemy",
+  "scripts": {
+    "start": "python3 server.py",
+    "dev": "venv/bin/python server.py"
+  }
+}

@@ -1,0 +1,5 @@
+testACC:testLastname:testCountries:testWebsite:testContactEmail:testInfo:testNote:testExtra
+1551:Hello:Aus:"https://kurdtech.iq":info@kurdtech.iq:Leading Kurdistan-based electronics distributor & assembler (Erbil):note1:xt4
+1552:Go to work:Netherlands:sales@iraqtel.com:"https://iraqtel.com":National telecom & device importer (Baghdad):note2:xt3
+1553:Take a note:Portugal::contact@sulaymanielectronics.iq:Regional assembler of TVs & home appliances (Sulaymaniyah):note3:xt2
+1554:Take a lecture:Canada:"https://duhokdigital.com":support@duhokdigital.com:Distributor of laptops & accessories in Duhok:note4:xt1

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="datamig — Seamlessly migrate CSV data into your relational database." />
+  <meta name="description" content="datamig — Seamlessly migrate flat file data into your relational database." />
   <title>datamig — Data Migration Tool</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -34,6 +34,10 @@
       <a href="#" class="nav-link">Settings</a>
     </nav>
     <div class="topbar-actions">
+      <span class="api-status" id="api-status" title="API Connection">
+        <span class="api-status-dot"></span>
+        <span class="api-status-text">Checking…</span>
+      </span>
       <button id="btn-help" class="icon-btn" aria-label="Help">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       </button>
@@ -43,26 +47,23 @@
 
   <!-- ─── Main content ─── -->
   <main class="main-content">
-    <!-- Hero -->
-    <section class="hero-section">
-      <div class="hero-icon-row">
-        <span class="hero-icon">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-        </span>
-        <span class="hero-arrow">→</span>
-        <span class="hero-icon accent">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+
+    <!-- ═══════════  Import Form (Minimal)  ═══════════ -->
+    <form id="migration-form" class="card migration-card migration-card--minimal" autocomplete="off">
+
+      <!-- Compact title -->
+      <div class="compact-header">
+        <div class="compact-header-left">
+          <svg class="compact-header-icon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <h1 class="compact-title">Import Data</h1>
+        </div>
+        <span class="api-status-inline" id="api-status-inline">
+          <span class="api-dot"></span>
         </span>
       </div>
-      <h1 class="hero-title">Migrate Your Data</h1>
-      <p class="hero-subtitle">Upload a CSV file and seamlessly move it into your database.</p>
-    </section>
 
-    <!-- ═══════════  Import Form  ═══════════ -->
-    <form id="migration-form" class="card migration-card" autocomplete="off">
-
-      <!-- Step bar -->
-      <div class="steps-bar" id="steps-bar">
+      <!-- Hidden steps bar (kept for JS compatibility) -->
+      <div class="steps-bar" id="steps-bar" style="display:none">
         <div class="step active" data-step="1"><span class="step-num">1</span><span class="step-label">Upload</span></div>
         <div class="step-connector active"></div>
         <div class="step" data-step="2"><span class="step-num">2</span><span class="step-label">Options</span></div>
@@ -72,140 +73,115 @@
         <div class="step" data-step="4"><span class="step-num">4</span><span class="step-label">Validate</span></div>
       </div>
 
-      <!-- ─── STEP 1: Upload CSV ─── -->
-      <fieldset class="form-section" id="section-source">
-        <legend class="section-title">
-          <span class="section-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg></span>
-          Upload CSV File
-        </legend>
-        <div class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Upload CSV file">
-          <input type="file" id="file-input" name="csvFile" accept=".csv" hidden />
+      <!-- ─── UPLOAD + INLINE OPTIONS ─── -->
+      <fieldset class="form-section form-section--compact" id="section-source">
+        <legend class="section-title" style="display:none">Upload File</legend>
+
+        <!-- Dropzone (shown when no file) -->
+        <div class="dropzone dropzone--mini" id="dropzone" tabindex="0" role="button" aria-label="Upload data file">
+          <input type="file" id="file-input" name="dataFile" accept=".csv,.tsv,.txt,.dat,.pipe,.psv" hidden />
           <div class="dropzone-inner">
-            <div class="dropzone-icon">
-              <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span class="dropzone-text--mini"><strong>Drop file</strong> or <button type="button" class="link-btn" id="btn-browse">browse</button></span>
+            <span class="dropzone-hint--mini">.csv .tsv .txt .dat — max 50 MB</span>
+          </div>
+        </div>
+
+        <!-- File bar (shown after upload) — file info + parsing options inline -->
+        <div class="file-bar hidden" id="file-preview">
+          <div class="file-bar-left">
+            <svg class="file-bar-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="file-bar-name" id="file-name">—</span>
+            <span class="file-bar-size" id="file-size">—</span>
+            <button type="button" class="file-bar-remove" id="btn-remove-file" aria-label="Remove file">×</button>
+          </div>
+          <div class="file-bar-right">
+            <!-- Header toggle (compact) -->
+            <label class="mini-toggle" title="First row contains column names">
+              <input type="checkbox" id="header-toggle-cb" checked />
+              <span class="mini-toggle-track"></span>
+              <span class="mini-toggle-label">Header row</span>
+            </label>
+            <!-- Separator (compact) -->
+            <div class="mini-sep">
+              <label class="mini-sep-label">Sep</label>
+              <input type="text" id="sep-input" class="mini-sep-input" value="," maxlength="5" />
             </div>
-            <p class="dropzone-text"><strong>Drag &amp; drop</strong> your CSV here</p>
-            <p class="dropzone-or">or</p>
-            <button type="button" class="btn btn-outline" id="btn-browse">Browse Files</button>
           </div>
-          <p class="dropzone-hint">Supported format: <code>.csv</code> — Max 50 MB</p>
         </div>
-        <div class="file-preview hidden" id="file-preview">
-          <div class="file-preview-icon">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          </div>
-          <div class="file-preview-info">
-            <span class="file-preview-name" id="file-name">—</span>
-            <span class="file-preview-size" id="file-size">—</span>
-          </div>
-          <button type="button" class="btn-icon-sm" id="btn-remove-file" aria-label="Remove file">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-          </button>
-        </div>
+        <!-- Kept for JS compatibility (hidden) -->
+        <input type="radio" id="header-yes" name="hasHeader" value="yes" checked style="display:none" />
+        <input type="radio" id="header-no" name="hasHeader" value="no" style="display:none" />
+        <div id="chip-sep" data-sep="," style="display:none">,</div>
+        <input type="checkbox" id="use-custom-sep" style="display:none" />
+        <input type="text" id="custom-sep" name="customSep" style="display:none" />
+        <div id="chip-fixed" style="display:none"></div>
       </fieldset>
 
-      <!-- ─── STEP 2: Options ─── -->
-      <fieldset class="form-section" id="section-options">
-        <legend class="section-title">
-          <span class="section-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1.08-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1.08 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001.08 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1.08z"/></svg></span>
-          Parsing Options
-        </legend>
-        <div class="option-group">
-          <p class="option-label">Does the CSV contain a header row?</p>
-          <div class="radio-group" id="header-radio-group">
-            <label class="radio-card selected" for="header-yes">
-              <input type="radio" id="header-yes" name="hasHeader" value="yes" checked />
-              <span class="radio-indicator"></span>
-              <span class="radio-content"><span class="radio-title">Yes</span><span class="radio-desc">First row is column names</span></span>
-            </label>
-            <label class="radio-card" for="header-no">
-              <input type="radio" id="header-no" name="hasHeader" value="no" />
-              <span class="radio-indicator"></span>
-              <span class="radio-content"><span class="radio-title">No</span><span class="radio-desc">All rows are data</span></span>
-            </label>
-          </div>
-        </div>
-        <div class="option-group">
-          <p class="option-label">Column Separator</p>
-          <div class="separator-row">
-            <div class="chip active" id="chip-sep" data-sep=",">,</div>
-            <label class="toggle-container" id="custom-sep-toggle">
-              <input type="checkbox" id="use-custom-sep" />
-              <span class="toggle-slider"></span>
-              <span class="toggle-text">Use custom separator</span>
-            </label>
-            <div class="chip chip-disabled" id="chip-fixed" title="Fixed width parsing — coming soon">FW <span class="chip-badge">Soon</span></div>
-          </div>
-          <div class="custom-sep-input hidden" id="custom-sep-wrapper">
-            <input type="text" id="custom-sep" name="customSep" maxlength="5" placeholder="e.g.  |  or  ;" class="text-input" />
-          </div>
-        </div>
+      <!-- ─── STEP 2: Options (hidden — now inline above) ─── -->
+      <fieldset class="form-section" id="section-options" style="display:none">
+        <legend class="section-title">Parsing Options</legend>
       </fieldset>
 
-      <!-- ─── STEP 3: Target ─── -->
-      <fieldset class="form-section" id="section-target">
-        <legend class="section-title">
-          <span class="section-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>
-          Destination
-        </legend>
+      <!-- ─── DESTINATION (compact) ─── -->
+      <fieldset class="form-section form-section--compact" id="section-target">
+        <legend class="section-title" style="display:none">Destination</legend>
 
-        <!-- Single vs Multi-table toggle -->
-        <div class="option-group">
-          <p class="option-label">How many tables to import into?</p>
-          <div class="radio-group" id="table-mode-group">
-            <label class="radio-card selected" for="mode-single">
-              <input type="radio" id="mode-single" name="tableMode" value="single" checked />
-              <span class="radio-indicator"></span>
-              <span class="radio-content"><span class="radio-title">Single Table</span><span class="radio-desc">All columns go to one table</span></span>
-            </label>
-            <label class="radio-card" for="mode-multi">
-              <input type="radio" id="mode-multi" name="tableMode" value="multi" />
-              <span class="radio-indicator"></span>
-              <span class="radio-content"><span class="radio-title">Multiple Tables</span><span class="radio-desc">Split columns across tables</span></span>
-            </label>
-          </div>
-        </div>
-
-        <!-- Single-table controls -->
-        <div id="single-table-controls">
-          <div class="target-row">
-            <div class="field">
-              <label for="db-table-select" class="field-label">Table</label>
-              <div class="select-wrapper">
-                <select id="db-table-select" name="dbTable" required>
-                  <option value="" disabled selected>Select a table…</option>
-                  <option value="Brands">Brands</option>
-                  <option value="Countries">Countries</option>
-                </select>
-                <span class="select-chevron"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
-              </div>
+        <div class="dest-row">
+          <!-- Operation -->
+          <div class="dest-field">
+            <label for="operation-select" class="dest-label">Operation</label>
+            <div class="select-wrapper select-wrapper--sm">
+              <select id="operation-select" name="operation" required>
+                <option value="insert">INSERT</option>
+                <option value="update">UPDATE</option>
+                <option value="upsert">UPSERT</option>
+              </select>
+              <span class="select-chevron"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
             </div>
-            <div class="field">
-              <label for="operation-select" class="field-label">Operation</label>
-              <div class="select-wrapper">
-                <select id="operation-select" name="operation" required>
-                  <option value="insert">INSERT</option>
-                  <option value="update">UPDATE</option>
-                  <option value="upsert">UPSERT (Insert or Update)</option>
-                </select>
-                <span class="select-chevron"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
-              </div>
+          </div>
+
+          <!-- Table mode toggle -->
+          <div class="dest-field">
+            <label class="dest-label">Mode</label>
+            <div class="mode-toggle" id="table-mode-group">
+              <label class="mode-btn mode-btn--active" for="mode-single">
+                <input type="radio" id="mode-single" name="tableMode" value="single" checked />
+                Single Table
+              </label>
+              <label class="mode-btn" for="mode-multi">
+                <input type="radio" id="mode-multi" name="tableMode" value="multi" />
+                Multi Table
+              </label>
+            </div>
+          </div>
+
+          <!-- Single-table select -->
+          <div class="dest-field dest-field--grow" id="single-table-controls">
+            <label for="db-table-select" class="dest-label">Table</label>
+            <div class="select-wrapper select-wrapper--sm">
+              <select id="db-table-select" name="dbTable" required>
+                <option value="" disabled selected>Select…</option>
+                <option value="Brands">Brands</option>
+                <option value="Countries">Countries</option>
+              </select>
+              <span class="select-chevron"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
             </div>
           </div>
         </div>
 
         <!-- Multi-table hint (shown when multi is selected) -->
-        <div id="multi-table-hint" class="multi-hint hidden">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
-          <span>Click <strong>"Assign Columns"</strong> to distribute CSV columns across multiple database tables.</span>
+        <div id="multi-table-hint" class="multi-hint multi-hint--compact hidden">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          <span>Click <strong>"Assign Columns"</strong> to distribute columns across tables.</span>
         </div>
       </fieldset>
 
       <!-- ─── Action bar ─── -->
-      <div class="action-bar" id="action-bar-parse">
-        <button type="button" class="btn btn-ghost" id="btn-reset">Reset</button>
-        <button type="button" class="btn btn-primary" id="btn-validate" disabled>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+      <div class="action-bar action-bar--compact" id="action-bar-parse">
+        <button type="button" class="btn btn-ghost btn--sm" id="btn-reset">Reset</button>
+        <button type="button" class="btn btn-primary btn--sm" id="btn-validate" disabled>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
           <span id="btn-validate-label">Validate &amp; Map</span>
         </button>
       </div>
@@ -218,17 +194,17 @@
       <div class="assign-header">
         <div>
           <h2 class="validation-title">Assign Columns to Tables</h2>
-          <p class="validation-subtitle">Select CSV columns on the left, then drag them to a target table on the right.</p>
+          <p class="validation-subtitle">Select columns on the left, then drag them to a target table on the right.</p>
         </div>
       </div>
 
       <div class="assign-layout">
-        <!-- Left: CSV Columns -->
+        <!-- Left: Source Columns -->
         <div class="assign-left">
           <div class="assign-panel-header">
             <span class="assign-panel-title">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-              CSV Columns
+              Source Columns
             </span>
             <span class="badge" id="csv-col-count">0 columns</span>
           </div>
@@ -263,7 +239,7 @@
       <div class="validation-header">
         <div>
           <h2 class="validation-title" id="validation-title">Column Mapping &amp; Validation</h2>
-          <p class="validation-subtitle" id="validation-subtitle">Review how CSV columns map to database columns. Fill in replacement values for NULLs.</p>
+          <p class="validation-subtitle" id="validation-subtitle">Review how source columns map to database columns. Fill in replacement values for NULLs.</p>
         </div>
         <div class="validation-header-right">
           <span class="badge" id="table-progress-badge" style="display:none">Table 1 of 1</span>
@@ -274,9 +250,9 @@
       <!-- ─── Summary Section (separate from data cards) ─── -->
       <div class="summary-section" id="summary-section"></div>
 
-      <!-- ─── Data Quality Cards (Kaggle-style) ─── -->
-      <div class="data-cards-scroll">
-        <div class="data-cards" id="data-cards"></div>
+      <!-- ─── Data Profiling Strips ─── -->
+      <div class="profile-strips-container">
+        <div class="profile-strips" id="data-cards"></div>
       </div>
 
       <!-- ─── Mapping table ─── -->
@@ -284,13 +260,11 @@
         <table class="mapping-table" id="mapping-table">
           <thead>
             <tr>
-              <th>CSV Col Letter</th>
-              <th>CSV Col #</th>
-              <th>CSV Column Name</th>
-              <th>Inferred Type</th>
+              <th>Column</th>
+              <th>Detected</th>
               <th class="arrow-col">→</th>
               <th>Map to DB Column</th>
-              <th>DB Datatype</th>
+              <th>DB Type</th>
               <th>Default Value</th>
               <th>NULL Replacement</th>
             </tr>
@@ -301,11 +275,11 @@
 
       <!-- ─── Split Data Preview ─── -->
       <div class="preview-split">
-        <!-- Source Data (all CSV columns) -->
+        <!-- Source Data (all columns) -->
         <div class="data-preview-section">
           <h3 class="preview-heading">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            Source Data <span class="preview-sub">(first 5 rows — all CSV columns)</span>
+            Source Data <span class="preview-sub">(first 5 rows — all columns)</span>
           </h3>
           <div class="table-scroll">
             <table class="preview-table" id="source-preview-table">
@@ -370,6 +344,22 @@
       </div>
     </div>
   </div>
+
+  <!-- Insert Results Modal -->
+  <div id="insert-result-modal" class="modal-backdrop hidden">
+    <div class="modal-content modal-content-lg">
+      <div id="insert-result-icon" class="insert-result-icon"></div>
+      <h3 class="modal-title" id="insert-result-title"></h3>
+      <p id="insert-result-message" class="modal-message"></p>
+      <div id="insert-result-details" class="insert-result-details"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-primary" id="insert-result-ok">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
 
   <!-- Footer -->
   <footer class="footer">

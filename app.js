@@ -1,32 +1,39 @@
 /* ════════════════════════════════════════════════════════════
    datamig — Application Logic
-   CSV parsing, data profiling, column mapping, multi-table, JSON output
+   Flat file parsing, data profiling, column mapping, multi-table, JSON output
+   Now with MySQL backend integration via Express API
    ════════════════════════════════════════════════════════════ */
 (function () {
     'use strict';
 
+    /* ═══════════════════════════════════════ API CONFIG ═══════════════════════════════════════ */
+    const API_BASE = window.location.origin; // Express serves both static files and API
+
     /* ═══════════════════════════════════════ DB SCHEMA ═══════════════════════════════════════ */
-    const DB_SCHEMA = {
+    // Schema is loaded dynamically from the API, with a hardcoded fallback
+    let DB_SCHEMA = {
         Brands: {
             tableName: 'Brands',
             columns: [
-                { name: 'br_ID', datatype: 'int', nullable: false, identity: true, defaultValue: 'IDENTITY(1,1)' },
-                { name: 'br_Name', datatype: 'nvarchar(100)', nullable: false, identity: false, defaultValue: null },
-                { name: 'br_Description', datatype: 'nvarchar(500)', nullable: true, identity: false, defaultValue: null },
+                { name: 'br_ID', datatype: 'int', nullable: false, identity: true, defaultValue: 'AUTO_INCREMENT' },
+                { name: 'br_Name', datatype: 'varchar(100)', nullable: false, identity: false, defaultValue: null },
+                { name: 'br_Description', datatype: 'varchar(500)', nullable: true, identity: false, defaultValue: null },
                 { name: 'br_Countries_ID', datatype: 'int', nullable: true, identity: false, defaultValue: null },
-                { name: 'br_Website', datatype: 'nvarchar(255)', nullable: true, identity: false, defaultValue: null },
-                { name: 'br_ContactEmail', datatype: 'nvarchar(255)', nullable: true, identity: false, defaultValue: null },
+                { name: 'br_Website', datatype: 'varchar(255)', nullable: true, identity: false, defaultValue: null },
+                { name: 'br_ContactEmail', datatype: 'varchar(255)', nullable: true, identity: false, defaultValue: null },
             ]
         },
         Countries: {
             tableName: 'Countries',
             columns: [
-                { name: 'ct_ID', datatype: 'int', nullable: false, identity: true, defaultValue: 'IDENTITY(1,1)' },
-                { name: 'ct_Name', datatype: 'nvarchar(100)', nullable: false, identity: false, defaultValue: null },
-                { name: 'ct_Code', datatype: 'nvarchar(5)', nullable: true, identity: false, defaultValue: null },
+                { name: 'ct_ID', datatype: 'int', nullable: false, identity: true, defaultValue: 'AUTO_INCREMENT' },
+                { name: 'ct_Name', datatype: 'varchar(100)', nullable: false, identity: false, defaultValue: null },
+                { name: 'ct_Code', datatype: 'varchar(5)', nullable: true, identity: false, defaultValue: null },
             ]
         }
     };
+
+    let apiConnected = false;
 
     const DATATYPE_OPTIONS = [
         { value: 'int', label: 'Integer (−2.1B to 2.1B)' },
@@ -50,6 +57,79 @@
     ];
 
     function friendlyType(v) { const f = DATATYPE_OPTIONS.find(o => o.value === v); return f ? f.label : v; }
+
+    function friendlyDbType(dt) {
+        if (!dt) return '—';
+        const d = dt.toLowerCase().replace(/\(.*\)/, '').trim();
+        if (['int', 'bigint', 'smallint', 'tinyint', 'mediumint', 'serial'].includes(d)) return 'Number';
+        if (['decimal', 'numeric', 'float', 'double', 'real', 'money', 'smallmoney'].includes(d)) return 'Decimal';
+        if (['varchar', 'nvarchar', 'char', 'nchar', 'text', 'ntext', 'longtext', 'mediumtext', 'tinytext', 'clob'].includes(d)) return 'Text';
+        if (['date', 'datetime', 'datetime2', 'smalldatetime', 'timestamp', 'time'].includes(d)) return 'Date';
+        if (['bit', 'boolean', 'bool'].includes(d)) return 'Boolean';
+        if (['uniqueidentifier', 'uuid'].includes(d)) return 'UUID';
+        if (['blob', 'binary', 'varbinary', 'image', 'longblob'].includes(d)) return 'Binary';
+        return dt; // fallback: show raw type
+    }
+
+    function isTypeMatch(inferredType, dbType) {
+        const fdb = friendlyDbType(dbType);
+        if (inferredType === 'Number' && (fdb === 'Number' || fdb === 'Decimal')) return true;
+        if (inferredType === 'Text' && fdb === 'Text') return true;
+        if (inferredType === 'Date' && fdb === 'Date') return true;
+        // Number can safely widen into Text
+        if (inferredType === 'Number' && fdb === 'Text') return true;
+        // Date can go into Text
+        if (inferredType === 'Date' && fdb === 'Text') return true;
+        // Everything else is a mismatch (e.g., Text→Number, Text→Date)
+        return false;
+    }
+
+    /** Show a blocking info/warning modal using #confirm-modal. Resolves when user clicks OK. */
+    function showBlockingModal(titleText, messageHtml) {
+        return new Promise(resolve => {
+            const modalEl = $('confirm-modal');
+            const msgEl = $('confirm-modal-message');
+            const okBtn = $('confirm-modal-ok');
+            const cancelBtn = $('confirm-modal-cancel');
+            modalEl.querySelector('.modal-title').textContent = titleText;
+            msgEl.innerHTML = messageHtml;
+            okBtn.textContent = 'OK';
+            cancelBtn.style.display = 'none';
+            modalEl.classList.remove('hidden');
+            const cleanup = () => { modalEl.classList.add('hidden'); cancelBtn.style.display = ''; okBtn.removeEventListener('click', onOk); };
+            const onOk = () => { cleanup(); resolve(); };
+            okBtn.addEventListener('click', onOk);
+        });
+    }
+
+    /** Parse raw DB error into a user-friendly message */
+    function friendlyError(raw) {
+        if (!raw) return 'Unknown error';
+        const s = String(raw);
+        // Field doesn't have a default value
+        let m = s.match(/Field '([^']+)' doesn't have a default value/i);
+        if (m) return `Column "${m[1]}" requires a value but none was provided. Map this column or set a NULL replacement.`;
+        // Duplicate entry
+        m = s.match(/Duplicate entry '([^']+)' for key '([^']+)'/i);
+        if (m) return `Duplicate value "${m[1]}" for "${m[2]}". This row already exists in the table.`;
+        // Data truncated
+        m = s.match(/Data truncated for column '([^']+)'/i);
+        if (m) return `Data too long or wrong format for column "${m[1]}". Check the data type.`;
+        // Incorrect value
+        m = s.match(/Incorrect (\w+) value: '([^']*)' for column '([^']+)'/i);
+        if (m) return `Invalid ${m[1]} value "${m[2]}" for column "${m[3]}".`;
+        // Cannot be null
+        m = s.match(/Column '([^']+)' cannot be null/i);
+        if (m) return `Column "${m[1]}" cannot be NULL. Provide a value or set a NULL replacement.`;
+        // Foreign key constraint
+        if (/foreign key constraint/i.test(s)) return 'Foreign key constraint failed. The referenced value does not exist in the related table.';
+        // Table doesn't exist
+        m = s.match(/Table '([^']+)' doesn't exist/i);
+        if (m) return `Table "${m[1]}" does not exist in the database.`;
+        // Generic: strip Python class prefix and SQL details
+        const cleaned = s.replace(/\(pymysql\.err\.\w+\)\s*/gi, '').replace(/\[SQL:.*$/s, '').replace(/\(Background on.*$/s, '').trim();
+        return cleaned.length > 200 ? cleaned.substring(0, 200) + '…' : cleaned;
+    }
 
     /* ═══════════════════════════════════════ DOM ═══════════════════════════════════════ */
     const $ = id => document.getElementById(id);
@@ -82,12 +162,14 @@
 
     /* ═══════════════════════════════════════ STATE ═══════════════════════════════════════ */
     let currentFile = null, parsedHeaders = [], parsedRows = [], columnProfiles = [], columnMapping = [];
+    let totalFileRows = null; // actual total rows in the file (may be more than parsedRows for large files)
     let multiTableMode = false;
     // Multi-table state
     let tableAssignments = []; // [{tableName:'Brands', columnIndices:[0,1,2]}, ...]
     let currentTableIdx = 0;
     let allTableMappings = []; // saved mapping per table
     let allTableProfiles = []; // saved profiles per table
+    const PREVIEW_ROW_LIMIT = 500; // max rows to parse in the browser for preview/mapping
 
     /* ═══════════════════════════════════════ HELPERS ═══════════════════════════════════════ */
     function formatBytes(b) {
@@ -97,14 +179,32 @@
         return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + s[i];
     }
     function colLetter(n) { let s = ''; while (n >= 0) { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } return s; }
-    function getSeparator() { return customToggle.checked && customInput.value ? customInput.value : ','; }
-    function hasHeader() { return $('header-yes').checked; }
+    function getSeparator() {
+        const sepInput = $('sep-input');
+        // Auto-detect from file extension
+        if (currentFile) {
+            const ext = currentFile.name.split('.').pop().toLowerCase();
+            if (ext === 'tsv') return '\t';
+            if (ext === 'pipe' || ext === 'psv') return '|';
+        }
+        if (sepInput && sepInput.value) {
+            // Handle visual \t display
+            if (sepInput.value === '\\t') return '\t';
+            return sepInput.value;
+        }
+        return customToggle.checked && customInput.value ? customInput.value : ',';
+    }
+    function hasHeader() {
+        const toggleCb = $('header-toggle-cb');
+        if (toggleCb) return toggleCb.checked;
+        return $('header-yes').checked;
+    }
     function getSelectedTable() { return $('db-table-select').value; }
     function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
     function isConstraintDefault(val) {
         if (!val) return false;
         const u = val.toUpperCase().trim();
-        return u.startsWith('IDENTITY') || u.startsWith('NEWID') || u.startsWith('NEWSEQUENTIALID') || u.startsWith('GETDATE') || u.startsWith('GETUTCDATE') || u.startsWith('SYSDATETIME');
+        return u.startsWith('IDENTITY') || u.startsWith('AUTO_INCREMENT') || u.startsWith('NEWID') || u.startsWith('NEWSEQUENTIALID') || u.startsWith('GETDATE') || u.startsWith('GETUTCDATE') || u.startsWith('SYSDATETIME');
     }
     function isMultiMode() { return $('mode-multi').checked; }
 
@@ -127,12 +227,11 @@
             if (/^\d{4}[-/]\d{2}[-/]\d{2}/.test(val) || /^\d{2}[-/]\d{2}[-/]\d{4}/.test(val)) hasDates = true;
         });
         if (nonEmpty === 0) { allInt = false; allNumeric = false; }
-        let inferredType = 'Text', typeIcon = 'A', typeClass = 'type-icon-text';
-        if (allInt && nonEmpty > 0) { inferredType = 'Integer'; typeIcon = '#'; typeClass = 'type-icon-number'; }
-        else if (allNumeric && nonEmpty > 0) { inferredType = 'Decimal'; typeIcon = '#'; typeClass = 'type-icon-number'; }
-        else if (hasUrls && !hasEmails) { inferredType = 'URL'; typeIcon = '🔗'; typeClass = 'type-icon-url'; }
-        else if (hasEmails) { inferredType = 'Email'; typeIcon = '@'; typeClass = 'type-icon-email'; }
-        else if (hasDates && nonEmpty > 0) { inferredType = 'Date / Time'; typeIcon = '📅'; typeClass = 'type-icon-date'; }
+         let inferredType = 'Text', typeIcon = 'A', typeClass = 'type-icon-text';
+        if (allInt && nonEmpty > 0) { inferredType = 'Number'; typeIcon = '#'; typeClass = 'type-icon-number'; }
+        else if (allNumeric && nonEmpty > 0) { inferredType = 'Number'; typeIcon = '#'; typeClass = 'type-icon-number'; }
+        else if (hasDates && nonEmpty > 0) { inferredType = 'Date'; typeIcon = '📅'; typeClass = 'type-icon-date'; }
+        else if (hasEmails || hasUrls) { inferredType = 'Text'; typeIcon = 'A'; typeClass = 'type-icon-text'; }
         let numStats = null;
         if (numericVals.length > 0) {
             numericVals.sort((a, b) => a - b);
@@ -178,7 +277,7 @@
         });
     }
 
-    /* ═══════════════════════════════════════ CSV PARSER ═══════════════════════════════════════ */
+    /* ═══════════════════════════════════════ FILE PARSER ═══════════════════════════════════════ */
     function parseCSV(text, sep) {
         const rows = []; let cur = [], field = '', inQ = false;
         for (let i = 0; i < text.length; i++) {
@@ -213,6 +312,47 @@
     function handleFile(file) {
         currentFile = file; fileNameEl.textContent = file.name; fileSizeEl.textContent = formatBytes(file.size);
         dropzone.style.display = 'none'; filePreview.classList.remove('hidden'); updateSteps(2); checkValidateReady();
+
+        // Content-based separator auto-detection
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const text = e.target.result;
+            const detected = sniffSeparator(text, file.name);
+            const si = $('sep-input');
+            if (si) si.value = (detected === '\t') ? '\\t' : detected;
+        };
+        // Read only first 4KB for sniffing performance
+        const blob = file.slice(0, 4096);
+        reader.readAsText(blob);
+    }
+
+    /** Sniff separator from file content by counting candidates across lines */
+    function sniffSeparator(text, fileName) {
+        const ext = fileName.split('.').pop().toLowerCase();
+        // Hard extension overrides
+        if (ext === 'tsv') return '\t';
+
+        const candidates = ['\t', '|', ';', ':', ','];
+        const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0).slice(0, 10);
+        if (lines.length === 0) return ',';
+
+        // Count how many times each candidate appears per line
+        let best = ',', bestScore = -1;
+        for (const sep of candidates) {
+            const counts = lines.map(l => l.split(sep).length - 1);
+            const min = Math.min(...counts);
+            const max = Math.max(...counts);
+            // Good separator: consistent count across lines, and count > 0
+            if (min > 0 && min === max && min > bestScore) {
+                bestScore = min;
+                best = sep;
+            } else if (min > 0 && max - min <= 1 && min > bestScore) {
+                // Allow slight variance (e.g. data with quotes)
+                bestScore = min;
+                best = sep;
+            }
+        }
+        return best;
     }
     btnRemove.addEventListener('click', () => { fileInput.value = ''; currentFile = null; filePreview.classList.add('hidden'); dropzone.style.display = ''; updateSteps(1); checkValidateReady(); });
 
@@ -221,7 +361,20 @@
         c.classList.add('selected'); c.querySelector('input').checked = true;
     }));
 
-    /* ─── Table mode toggle ─── */
+    /* ─── Table mode toggle (new compact segmented control) ─── */
+    document.querySelectorAll('#table-mode-group .mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('#table-mode-group .mode-btn').forEach(b => b.classList.remove('mode-btn--active'));
+            btn.classList.add('mode-btn--active');
+            btn.querySelector('input').checked = true;
+            multiTableMode = isMultiMode();
+            singleControls.classList.toggle('hidden', multiTableMode);
+            multiHint.classList.toggle('hidden', !multiTableMode);
+            btnValidateLabel.textContent = multiTableMode ? 'Assign Columns' : 'Validate & Map';
+            checkValidateReady();
+        });
+    });
+    /* legacy radio-card toggle (still works if old HTML is used) */
     document.querySelectorAll('#table-mode-group .radio-card').forEach(c => c.addEventListener('click', () => {
         multiTableMode = isMultiMode();
         singleControls.classList.toggle('hidden', multiTableMode);
@@ -231,6 +384,7 @@
     }));
 
     /* ─── Separator ─── */
+    /* ─── Separator ─── */
     customToggle.addEventListener('change', () => {
         const on = customToggle.checked; customWrapper.classList.toggle('hidden', !on);
         if (on) { chipSep.classList.remove('active'); customInput.focus(); } else { chipSep.classList.add('active'); chipSep.textContent = ','; }
@@ -239,7 +393,23 @@
         const v = customInput.value;
         if (v) { chipSep.textContent = v; chipSep.classList.add('active'); } else { chipSep.textContent = ','; chipSep.classList.remove('active'); }
     });
+    /* ─── New inline header toggle sync ─── */
+    const headerToggleCb = $('header-toggle-cb');
+    if (headerToggleCb) {
+        headerToggleCb.addEventListener('change', () => {
+            $('header-yes').checked = headerToggleCb.checked;
+            $('header-no').checked = !headerToggleCb.checked;
+        });
+    }
+    /* ─── New inline sep-input sync ─── */
+    const sepInput = $('sep-input');
+    if (sepInput) {
+        sepInput.addEventListener('input', () => {
+            if (chipSep) { chipSep.textContent = sepInput.value || ','; }
+        });
+    }
     $('db-table-select').addEventListener('change', () => { updateSteps(3); checkValidateReady(); });
+    $('operation-select').addEventListener('change', () => { if (!validationSection.classList.contains('hidden')) renderMapping(); });
 
     /* ═══════════════════════════════════════ VALIDATE & MAP ═══════════════════════════════════════ */
     btnValidate.addEventListener('click', () => {
@@ -247,9 +417,21 @@
         const reader = new FileReader();
         reader.onload = e => {
             const allRows = parseCSV(e.target.result, getSeparator());
-            if (!allRows.length) { alert('CSV appears empty.'); return; }
-            if (hasHeader()) { parsedHeaders = allRows[0]; parsedRows = allRows.slice(1); }
-            else { parsedHeaders = allRows[0].map((_, i) => 'Column ' + (i + 1)); parsedRows = allRows; }
+            if (!allRows.length) { alert('File appears empty.'); return; }
+            if (hasHeader()) {
+                parsedHeaders = allRows[0];
+                const dataRows = allRows.slice(1);
+                totalFileRows = dataRows.length;
+                // Limit rows for preview/profiling to avoid crashing browser on huge files
+                parsedRows = dataRows.length > PREVIEW_ROW_LIMIT ? dataRows.slice(0, PREVIEW_ROW_LIMIT) : dataRows;
+            } else {
+                parsedHeaders = allRows[0].map((_, i) => 'Column ' + (i + 1));
+                totalFileRows = allRows.length;
+                parsedRows = allRows.length > PREVIEW_ROW_LIMIT ? allRows.slice(0, PREVIEW_ROW_LIMIT) : allRows;
+            }
+            if (totalFileRows > PREVIEW_ROW_LIMIT) {
+                console.log(`[Preview] Showing ${PREVIEW_ROW_LIMIT} of ${totalFileRows.toLocaleString()} rows for profiling`);
+            }
             columnProfiles = profileAllColumns(parsedHeaders, parsedRows);
 
             if (multiTableMode) { showAssignPage(); }
@@ -277,7 +459,7 @@
             activeColumnIndices = null; // show all
         }
         validationTitle.textContent = isMulti ? `Mapping: ${tableName}` : 'Column Mapping & Validation';
-        validationSubtitle.textContent = isMulti ? `Table ${currentTableIdx + 1} of ${tableAssignments.length} — Review mapping for ${tableName}` : 'Review how CSV columns map to database columns. Fill in replacement values for NULLs.';
+        validationSubtitle.textContent = isMulti ? `Table ${currentTableIdx + 1} of ${tableAssignments.length} — Review mapping for ${tableName}` : 'Review how source columns map to database columns. Fill in replacement values for NULLs.';
         if (isMulti) {
             tableProgressBadge.style.display = ''; tableProgressBadge.textContent = `Table ${currentTableIdx + 1} of ${tableAssignments.length}`;
             btnPrevTable.classList.toggle('hidden', currentTableIdx === 0);
@@ -314,12 +496,50 @@
     function renderDataCards() {
         const ap = getActiveProfiles();
         let html = '';
-        ap.forEach(p => {
-            const t = p.total || 1, vP = ((p.valid / t) * 100).toFixed(0), wP = ((p.weird / t) * 100).toFixed(0), mP = ((p.missing / t) * 100).toFixed(0);
-            let extra = '';
-            if (p.numStats) extra = `<div class="card-extra-stats"><div class="extra-stat-row"><span class="extra-stat-label">Min</span><span class="extra-stat-value">${p.numStats.min.toLocaleString()}</span></div><div class="extra-stat-row"><span class="extra-stat-label">Max</span><span class="extra-stat-value">${p.numStats.max.toLocaleString()}</span></div><div class="extra-stat-row"><span class="extra-stat-label">Mean</span><span class="extra-stat-value">${p.numStats.mean.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div><div class="extra-stat-row"><span class="extra-stat-label">Unique</span><span class="extra-stat-value">${p.numStats.unique}</span></div></div>`;
-            else if (p.nonEmpty > 0) { const u = new Set(); parsedRows.forEach(r => { if (p.colIdx < r.length && r[p.colIdx]) u.add(r[p.colIdx]); }); extra = `<div class="card-extra-stats"><div class="extra-stat-row"><span class="extra-stat-label">Avg Length</span><span class="extra-stat-value">${p.avgLen.toFixed(1)}</span></div><div class="extra-stat-row"><span class="extra-stat-label">Max Length</span><span class="extra-stat-value">${p.maxLen}</span></div><div class="extra-stat-row"><span class="extra-stat-label">Unique</span><span class="extra-stat-value">${u.size}</span></div></div>`; }
-            html += `<div class="data-card"><div class="data-card-header"><span class="data-card-type-icon ${p.typeClass}">${p.typeIcon}</span><span class="data-card-name" title="${escHtml(p.name)}">${escHtml(p.name)}</span></div><span class="data-card-inferred">${p.inferredType}</span><div class="quality-bar" style="margin-top:.45rem;"><div class="quality-bar-valid" style="width:${vP}%"></div><div class="quality-bar-weird" style="width:${wP}%"></div><div class="quality-bar-missing" style="width:${mP}%"></div></div><div class="quality-stats"><div class="quality-stat"><span class="quality-stat-label"><span class="quality-dot dot-valid"></span> Valid</span><span><span class="quality-stat-value">${p.valid}</span><span class="quality-stat-pct">${vP}%</span></span></div><div class="quality-stat"><span class="quality-stat-label"><span class="quality-dot dot-weird"></span> Weird / Non-ASCII</span><span><span class="quality-stat-value">${p.weird}</span><span class="quality-stat-pct">${wP}%</span></span></div><div class="quality-stat"><span class="quality-stat-label"><span class="quality-dot dot-missing"></span> Missing</span><span><span class="quality-stat-value">${p.missing}</span><span class="quality-stat-pct">${mP}%</span></span></div></div>${extra}</div>`;
+        ap.forEach((p, idx) => {
+            const t = p.total || 1;
+            const filledPct = ((p.nonEmpty / t) * 100).toFixed(0);
+            const letter = colLetter(p.colIdx);
+            const num = p.colIdx + 1;
+            const typeColor = { 'Number': '#0ea5e9', 'Date': '#6366f1', 'Text': '#10b981' }[p.inferredType] || '#64748b';
+
+            // Gather up to 4 sample values
+            const samples = [];
+            for (let r = 0; r < Math.min(parsedRows.length, 20) && samples.length < 4; r++) {
+                const v = parsedRows[r][p.colIdx];
+                if (v && v.trim()) {
+                    const display = v.length > 25 ? v.substring(0, 22) + '…' : v;
+                    if (!samples.includes(display)) samples.push(display);
+                }
+            }
+            const sampleHtml = samples.length 
+                ? `<span class="strip-samples">${samples.map(s => `<code>${escHtml(s)}</code>`).join(' ')}</span>` 
+                : '';
+
+            // Stats + quality flags
+            let statsHtml = '';
+            if (p.numStats) {
+                statsHtml = `<span class="strip-stat">Range: ${p.numStats.min.toLocaleString()} – ${p.numStats.max.toLocaleString()}</span>`;
+            } else if (p.nonEmpty > 0) {
+                const uniqueSet = new Set();
+                const allVals = [];
+                for (let r = 0; r < parsedRows.length; r++) { const v = parsedRows[r][p.colIdx]; if (v && v.trim()) { uniqueSet.add(v); allVals.push(v); } }
+                const dupes = allVals.length - uniqueSet.size;
+                statsHtml = `<span class="strip-stat">${p.missing} null · Max: ${p.maxLen} · ${dupes} dupe</span>`;
+            }
+            // Quality warnings for non-text types too
+            let qualityHtml = '';
+            if (p.missing > 0) qualityHtml += `<span class="strip-warn strip-warn-missing" title="${p.missing} missing values">${p.missing} null</span>`;
+            if (p.weird > 0) qualityHtml += `<span class="strip-warn strip-warn-weird" title="${p.weird} weird/non-ASCII values">${p.weird} weird</span>`;
+
+            html += `<div class="profile-strip">
+                <div class="strip-col"><span class="strip-id">${letter}-${num}</span> <span class="strip-name" title="${escHtml(p.name)}">${escHtml(p.name)}</span></div>
+                <span class="strip-type" style="color:${typeColor}">${p.inferredType}</span>
+                <div class="strip-fill-wrap"><div class="strip-fill-bar"><div class="strip-fill-bar-inner" style="width:${filledPct}%; background:${typeColor}"></div></div><span class="strip-fill-pct">${filledPct}%</span></div>
+                ${statsHtml}
+                ${qualityHtml}
+                ${sampleHtml}
+            </div>`;
         });
         dataCardsEl.innerHTML = html;
     }
@@ -327,25 +547,43 @@
     function renderMapping(schemaOverride) {
         const tbl = multiTableMode && tableAssignments.length ? tableAssignments[currentTableIdx].tableName : getSelectedTable();
         const schema = schemaOverride || DB_SCHEMA[tbl]; if (!schema) return;
+        const op = document.getElementById('operation-select').value;
         let html = '';
         columnMapping.forEach((map, i) => {
             const letter = colLetter(map.csvIndex), num = map.csvIndex + 1;
             const profile = columnProfiles.find(p => p.colIdx === map.csvIndex) || columnProfiles[0];
             const isMapped = map.isMapped, rowClass = isMapped ? '' : 'unmapped-row', hasCon = isConstraintDefault(map.defaultValue);
-            const inferColor = { 'Integer': 'rgba(14,165,233,.1); color:#0ea5e9', 'Decimal': 'rgba(14,165,233,.1); color:#0ea5e9', 'URL': 'rgba(139,92,246,.1); color:#8b5cf6', 'Email': 'rgba(245,158,11,.1); color:#f59e0b', 'Date / Time': 'rgba(99,102,241,.1); color:#6366f1', 'Text': 'rgba(16,185,129,.1); color:#10b981' }[profile.inferredType] || 'rgba(100,116,139,.1); color:#64748b';
+            const inferColor = { 'Number': 'rgba(14,165,233,.1); color:#0ea5e9', 'Date': 'rgba(99,102,241,.1); color:#6366f1', 'Text': 'rgba(16,185,129,.1); color:#10b981' }[profile.inferredType] || 'rgba(100,116,139,.1); color:#64748b';
+
+            // Filter auto-increment columns for INSERT mode
             let dbSel = `<select class="mapping-select db-col-map-select" data-row="${i}"><option value="">— not mapped —</option>`;
-            schema.columns.forEach(c => { dbSel += `<option value="${c.name}"${c.name === map.dbColName ? ' selected' : ''}>${c.name}</option>`; });
+            schema.columns.forEach(c => {
+                const isAuto = c.identity || (c.autoincrement && c.name === schema.columns.find(pk => pk.primaryKey)?.name);
+                if (op === 'insert' && isAuto && c.name !== map.dbColName) return; // hide auto-inc for insert unless already mapped
+                const isIdentityHighlight = (op === 'update' || op === 'upsert') && isAuto;
+                dbSel += `<option value="${c.name}"${c.name === map.dbColName ? ' selected' : ''}${isIdentityHighlight ? ' class="identity-option"' : ''}>${c.name}${isIdentityHighlight ? ' 🔑' : ''}</option>`;
+            });
             dbSel += '</select>';
-            let dtSel = `<select class="mapping-select datatype-select" data-row="${i}"${!isMapped ? ' disabled' : ''}><option value="">—</option>`;
-            DATATYPE_OPTIONS.forEach(o => { dtSel += `<option value="${o.value}"${o.value === map.datatype ? ' selected' : ''}>${o.label}</option>`; });
-            if (map.datatype && !DATATYPE_OPTIONS.find(o => o.value === map.datatype)) dtSel += `<option value="${map.datatype}" selected>${friendlyType(map.datatype)}</option>`;
-            dtSel += '</select>';
+
+            let matchKeyHtml = '';
+            if (op === 'update' || op === 'upsert') {
+                matchKeyHtml = `<div style="margin-top:6px; padding:4px; background:rgba(245,158,11,0.05); border:1px solid rgba(245,158,11,0.2); border-radius:4px;"><label style="font-size:0.75rem; color:#b45309; display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" class="cb-match-key" data-row="${i}" ${map.isMatchKey ? 'checked' : ''}> Use as Match Key</label></div>`;
+            }
+
+            // DB Type — read-only span, red on mismatch
+            const dbTypeDisplay = isMapped ? friendlyDbType(map.datatype) : '—';
+            const mismatch = isMapped && map.datatype && !isTypeMatch(profile.inferredType, map.datatype);
+            const dbTypeClass = mismatch ? 'db-type-badge db-type-mismatch' : 'db-type-badge';
+
             const dDis = !isMapped ? ' disabled' : '', dCls = hasCon ? 'default-input constraint-locked' : 'default-input', dRo = hasCon ? ' readonly' : '';
-            html += `<tr class="${rowClass}"><td><span class="col-letter">${letter}</span></td><td><span class="col-num">${num}</span></td><td><span class="csv-col-name">${escHtml(map.csvName)}</span></td><td><span class="inferred-type-badge" style="background:${inferColor}">${profile.inferredType}</span></td><td class="arrow-col">→</td><td>${dbSel}</td><td>${dtSel}</td><td><input type="text" class="${dCls}" data-row="${i}" value="${escHtml(map.defaultValue)}" placeholder="None"${dDis}${dRo} /></td><td>${map.nullable ? `<input type="text" class="null-input" data-row="${i}" value="${escHtml(map.nullReplacement)}" placeholder="Value for NULL…" />` : '<span class="nullable-no">NOT NULL</span>'}</td></tr>`;
+            html += `<tr class="${rowClass}"><td><span class="col-combined"><span class="col-letter">${letter}-${num}</span> <span class="col-name-inline">${escHtml(map.csvName)}</span></span></td><td><span class="inferred-type-badge" style="background:${inferColor}">${profile.inferredType}</span></td><td class="arrow-col">→</td><td>${dbSel}${matchKeyHtml}</td><td><span class="${dbTypeClass}">${dbTypeDisplay}</span></td><td><input type="text" class="${dCls}" data-row="${i}" value="${escHtml(map.defaultValue)}" placeholder="None"${dDis}${dRo} /></td><td>${map.nullable ? `<input type="text" class="null-input" data-row="${i}" value="${escHtml(map.nullReplacement)}" placeholder="Value for NULL…" />` : '<span class="nullable-no">NOT NULL</span>'}</td></tr>`;
         });
         mappingTbody.innerHTML = html;
         mappingTbody.querySelectorAll('.db-col-map-select').forEach(s => s.addEventListener('change', onDbColumnChange));
-        mappingTbody.querySelectorAll('.datatype-select').forEach(s => s.addEventListener('change', e => { columnMapping[parseInt(e.target.dataset.row)].datatype = e.target.value; }));
+
+        mappingTbody.querySelectorAll('.cb-match-key').forEach(s => s.addEventListener('change', e => { 
+            columnMapping[parseInt(e.target.dataset.row)].isMatchKey = e.target.checked; 
+        }));
         mappingTbody.querySelectorAll('.default-input:not(.constraint-locked)').forEach(s => s.addEventListener('input', e => { columnMapping[parseInt(e.target.dataset.row)].defaultValue = e.target.value; renderPreview(); }));
         mappingTbody.querySelectorAll('.null-input').forEach(s => s.addEventListener('input', e => { columnMapping[parseInt(e.target.dataset.row)].nullReplacement = e.target.value; renderPreview(); }));
     }
@@ -356,12 +594,21 @@
             const eIdx = columnMapping.findIndex((m, idx) => idx !== row && m.dbColName === newVal && m.isMapped);
             if (eIdx >= 0) {
                 const eCsv = columnMapping[eIdx].csvName, eLtr = colLetter(columnMapping[eIdx].csvIndex);
-                setTimeout(() => {
-                    const ok = confirm('Duplicate Mapping Detected\n\n"' + newVal + '" is already mapped to CSV column "' + eCsv + '" (Column ' + eLtr + ').\n\nDo you want to overwrite?\nOK = Remove mapping from "' + eCsv + '" and assign to "' + csvN + '"\nCancel = Keep the existing mapping');
-                    if (ok) { columnMapping[eIdx].dbColName = null; columnMapping[eIdx].isMapped = false; columnMapping[eIdx].datatype = ''; columnMapping[eIdx].nullable = true; columnMapping[eIdx].identity = false; columnMapping[eIdx].defaultValue = ''; applyDbMapping(row, newVal); }
-                    else { columnMapping[row].dbColName = prev; e.target.value = prev || ''; }
-                    renderMapping(); renderPreview(); renderSummary();
-                }, 0); return;
+                // Use custom modal instead of confirm() to prevent flash dismiss
+                const modalEl = $('confirm-modal');
+                const msgEl = $('confirm-modal-message');
+                const okBtn = $('confirm-modal-ok');
+                const cancelBtn = $('confirm-modal-cancel');
+                msgEl.innerHTML = '"<b>' + escHtml(newVal) + '</b>" is already mapped to column "<b>' + escHtml(eCsv) + '</b>" (Column ' + eLtr + ').<br><br>Overwrite will remove the existing mapping and assign to "<b>' + escHtml(csvN) + '</b>".';
+                modalEl.querySelector('.modal-title').textContent = 'Duplicate Mapping Detected';
+                okBtn.textContent = 'Overwrite';
+                modalEl.classList.remove('hidden');
+                const cleanup = () => { modalEl.classList.add('hidden'); okBtn.removeEventListener('click', onOk); cancelBtn.removeEventListener('click', onCancel); };
+                const onOk = () => { cleanup(); columnMapping[eIdx].dbColName = null; columnMapping[eIdx].isMapped = false; columnMapping[eIdx].datatype = ''; columnMapping[eIdx].nullable = true; columnMapping[eIdx].identity = false; columnMapping[eIdx].defaultValue = ''; applyDbMapping(row, newVal); renderMapping(); renderPreview(); renderSummary(); };
+                const onCancel = () => { cleanup(); columnMapping[row].dbColName = prev; e.target.value = prev || ''; renderMapping(); renderPreview(); renderSummary(); };
+                okBtn.addEventListener('click', onOk);
+                cancelBtn.addEventListener('click', onCancel);
+                return;
             }
         }
         applyDbMapping(row, newVal); renderMapping(); renderPreview(); renderSummary();
@@ -372,8 +619,30 @@
         columnMapping[row].dbColName = dbColName; columnMapping[row].isMapped = !!dbColName;
         if (dbColName) {
             const schema = DB_SCHEMA[tbl]; const d = schema ? schema.columns.find(c => c.name === dbColName) : null;
-            if (d) { columnMapping[row].datatype = d.datatype; columnMapping[row].nullable = d.nullable; columnMapping[row].identity = d.identity; columnMapping[row].defaultValue = d.identity ? 'IDENTITY(1,1)' : (d.defaultValue || ''); }
-        } else { columnMapping[row].datatype = ''; columnMapping[row].nullable = true; columnMapping[row].identity = false; columnMapping[row].defaultValue = ''; }
+            if (d) { 
+                columnMapping[row].datatype = d.datatype; 
+                columnMapping[row].nullable = d.nullable; 
+                columnMapping[row].identity = d.identity; 
+                columnMapping[row].defaultValue = d.identity ? 'IDENTITY(1,1)' : (d.defaultValue || ''); 
+
+                const fk = schema.foreignKeys ? schema.foreignKeys.find(f => f.column === dbColName) : null;
+                if (fk) {
+                    columnMapping[row].isForeignKey = true;
+                    columnMapping[row].fkReferredTable = fk.referredTable;
+                    columnMapping[row].isLookup = true;
+                    columnMapping[row].lookupTable = fk.referredTable;
+                    columnMapping[row].lookupMatchColumn = ""; 
+                } else {
+                    columnMapping[row].isForeignKey = false;
+                    columnMapping[row].isLookup = false;
+                    columnMapping[row].lookupTable = null;
+                    columnMapping[row].lookupMatchColumn = null;
+                }
+            }
+        } else { 
+            columnMapping[row].datatype = ''; columnMapping[row].nullable = true; columnMapping[row].identity = false; columnMapping[row].defaultValue = ''; 
+            columnMapping[row].isForeignKey = false; columnMapping[row].isLookup = false; columnMapping[row].lookupTable = null; columnMapping[row].lookupMatchColumn = null;
+        }
     }
 
     function renderSourcePreview() {
@@ -426,8 +695,8 @@
         let leftHtml = `<div class="csv-col-select-all"><label class="select-all-label"><input type="checkbox" id="select-all-cb" /><span>Select All</span></label></div>`;
         parsedHeaders.forEach((h, i) => {
             const p = columnProfiles[i]; const isAssigned = allAssigned.has(i);
-            const typeColor = { 'Integer': 'rgba(14,165,233,.1); color:#0ea5e9', 'URL': 'rgba(139,92,246,.1); color:#8b5cf6', 'Email': 'rgba(245,158,11,.1); color:#f59e0b', 'Text': 'rgba(16,185,129,.1); color:#10b981' }[p.inferredType] || 'rgba(100,116,139,.1); color:#64748b';
-            leftHtml += `<div class="csv-col-item${isAssigned ? ' assigned' : ''}" data-idx="${i}"><input type="checkbox" data-idx="${i}" ${isAssigned ? 'disabled' : ''}/><span class="col-letter">${colLetter(i)}</span><span class="csv-col-item-name">${escHtml(h)}</span><span class="csv-col-item-type" style="background:${typeColor}">${p.inferredType}</span></div>`;
+            const typeColor = { 'Number': 'rgba(14,165,233,.1); color:#0ea5e9', 'Date': 'rgba(99,102,241,.1); color:#6366f1', 'Text': 'rgba(16,185,129,.1); color:#10b981' }[p.inferredType] || 'rgba(100,116,139,.1); color:#64748b';
+            leftHtml += `<div class="csv-col-item${isAssigned ? ' assigned' : ''}" data-idx="${i}"><input type="checkbox" data-idx="${i}" ${isAssigned ? 'disabled' : ''}/><span class="col-letter">${colLetter(i)}-${i + 1}</span><span class="csv-col-item-name">${escHtml(h)}</span><span class="csv-col-item-type" style="background:${typeColor}">${p.inferredType}</span></div>`;
         });
         csvColList.innerHTML = leftHtml;
 
@@ -438,7 +707,7 @@
             tableKeys.forEach(k => { opts += `<option value="${k}"${k === a.tableName ? ' selected' : ''}>${k}</option>`; });
             let chips = '';
             a.columnIndices.forEach(ci => { chips += `<span class="assigned-chip" data-tidx="${tIdx}" data-cidx="${ci}">${colLetter(ci)}: ${escHtml(parsedHeaders[ci])}<button class="chip-remove" data-tidx="${tIdx}" data-cidx="${ci}">✕</button></span>`; });
-            rightHtml += `<div class="table-drop-box" data-tidx="${tIdx}"><div class="table-drop-header"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><select class="table-select" data-tidx="${tIdx}">${opts}</select>${tableAssignments.length > 2 ? `<button class="btn-icon-sm btn-remove-table" data-tidx="${tIdx}" aria-label="Remove table"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : ''}</div><div class="table-drop-zone${a.columnIndices.length === 0 ? ' empty' : ''}" data-tidx="${tIdx}">${chips || '<span class="drop-hint">Drop columns here…</span>'}</div></div>`;
+            rightHtml += `<div class="table-drop-box" data-tidx="${tIdx}"><div class="table-drop-header"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><select class="table-select" data-tidx="${tIdx}">${opts}</select><div style="display:flex; gap: 4px; margin-left:auto"><button class="btn-icon-sm btn-move-table-up" data-tidx="${tIdx}" ${tIdx === 0 ? 'disabled style="opacity: 0.3; cursor: default;"' : ''} aria-label="Move table up" title="Execute this table earlier"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg></button><button class="btn-icon-sm btn-move-table-down" data-tidx="${tIdx}" ${tIdx === tableAssignments.length - 1 ? 'disabled style="opacity: 0.3; cursor: default;"' : ''} aria-label="Move table down" title="Execute this table later"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg></button>${tableAssignments.length > 2 ? `<button class="btn-icon-sm btn-remove-table" data-tidx="${tIdx}" aria-label="Remove table"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : ''}</div></div><div class="table-drop-zone${a.columnIndices.length === 0 ? ' empty' : ''}" data-tidx="${tIdx}">${chips || '<span class="drop-hint">Drop columns here…</span>'}</div></div>`;
         });
         assignRight.innerHTML = rightHtml;
         attachAssignListeners();
@@ -614,6 +883,26 @@
             tableAssignments[tIdx].columnIndices = tableAssignments[tIdx].columnIndices.filter(i => i !== cIdx);
             renderAssignPage();
         }));
+        // Move table up
+        assignRight.querySelectorAll('.btn-move-table-up').forEach(b => b.addEventListener('click', e => {
+            const idx = parseInt(e.currentTarget.dataset.tidx);
+            if (idx > 0) {
+                const temp = tableAssignments[idx];
+                tableAssignments[idx] = tableAssignments[idx - 1];
+                tableAssignments[idx - 1] = temp;
+                renderAssignPage();
+            }
+        }));
+        // Move table down
+        assignRight.querySelectorAll('.btn-move-table-down').forEach(b => b.addEventListener('click', e => {
+            const idx = parseInt(e.currentTarget.dataset.tidx);
+            if (idx < tableAssignments.length - 1) {
+                const temp = tableAssignments[idx];
+                tableAssignments[idx] = tableAssignments[idx + 1];
+                tableAssignments[idx + 1] = temp;
+                renderAssignPage();
+            }
+        }));
         // Per-item checkbox direct clicks: sync highlight + select-all state
         csvColList.querySelectorAll('.csv-col-item:not(.assigned) input[type="checkbox"]').forEach(cb => {
             cb.addEventListener('change', () => {
@@ -695,9 +984,75 @@
     });
 
     /* ═══════════════════════════════════════ COMMIT / NEXT TABLE ═══════════════════════════════════════ */
-    btnCommit.addEventListener('click', () => {
+
+    /**
+     * Build the mapping_config JSON for the ETL endpoint.
+     * Shape: { separator, hasHeader, tables: { TableName: { mappings: [{csvColumn, dbColumn}] } } }
+     */
+    function buildMappingConfig(tableMappings) {
+        const tables = {};
+        const op = document.getElementById('operation-select').value;
+        for (const [tblName, mappedCols] of Object.entries(tableMappings)) {
+            tables[tblName] = {
+                operation: op,
+                matchKeys: mappedCols.filter(m => m.isMapped && m.isMatchKey).map(m => m.dbColName),
+                mappings: mappedCols
+                    .filter(m => m.isMapped)
+                    .map(m => {
+                        let obj = { csvColumn: m.csvName, dbColumn: m.dbColName };
+                        if (m.isLookup && m.lookupMatchColumn) {
+                            obj.isLookup = true;
+                            obj.lookupTable = m.lookupTable;
+                            obj.lookupMatchColumn = m.lookupMatchColumn;
+                        }
+                        return obj;
+                    })
+            };
+        }
+        return {
+            separator: getSeparator(),
+            hasHeader: hasHeader(),
+            tables,
+        };
+    }
+
+    /**
+     * Send file + mapping config to the ETL endpoint via FormData.
+     * Returns the parsed API response.
+     */
+    async function submitETL(mappingConfig) {
+        const formData = new FormData();
+        formData.append('file', currentFile);
+        formData.append('mapping_config', JSON.stringify(mappingConfig));
+        const resp = await fetch(`${API_BASE}/api/etl-upload`, {
+            method: 'POST',
+            body: formData,
+        });
+        const data = await resp.json();
+        return { ...data, httpOk: resp.ok };
+    }
+
+    btnCommit.addEventListener('click', async () => {
         const mapped = columnMapping.filter(m => m.isMapped);
-        if (!mapped.length) { alert('No columns are mapped.'); return; }
+        if (!mapped.length) { await showBlockingModal('No Columns Mapped', 'Please map at least one source column to a database column before committing.'); return; }
+
+        // Block commit if type mismatches exist
+        const mismatches = mapped.filter(m => {
+            const profile = columnProfiles.find(p => p.colIdx === m.csvIndex);
+            return profile && m.datatype && !isTypeMatch(profile.inferredType, m.datatype);
+        });
+        if (mismatches.length > 0) {
+            const rows = mismatches.map(m => `<b>${escHtml(m.csvName)}</b> (${columnProfiles.find(p=>p.colIdx===m.csvIndex)?.inferredType || '?'}) → <b>${escHtml(m.dbColName)}</b> (${friendlyDbType(m.datatype)})`).join('<br>');
+            await showBlockingModal('Type Mismatch', `The following columns have incompatible data types:<br><br>${rows}<br><br>Please fix the mapping or change the target column before committing.`);
+            return;
+        }
+        const op = document.getElementById('operation-select').value;
+        if (op === 'update' || op === 'upsert') {
+            if (!mapped.some(m => m.isMatchKey)) {
+                await showBlockingModal('Match Key Required', 'For an Update/Upsert operation, you must select at least one <b>Match Key</b> column to identify which rows to update.');
+                return;
+            }
+        }
 
         if (multiTableMode) {
             allTableMappings[currentTableIdx] = JSON.parse(JSON.stringify(columnMapping));
@@ -708,19 +1063,68 @@
                 if (allTableMappings[currentTableIdx]) { renderMapping(); renderPreview(); renderSummary(); }
                 return;
             }
-            // Last table — generate combined JSON
-            const result = {};
+            // Last table — build preview JSON (from preview rows only) and show it
+            const previewResult = {};
             tableAssignments.forEach((a, idx) => {
                 const m = allTableMappings[idx].filter(mm => mm.isMapped);
-                result[a.tableName] = parsedRows.map(row => buildRowObj(row, m));
+                previewResult[a.tableName] = parsedRows.slice(0, 5).map(row => buildRowObj(row, m));
             });
-            jsonOutput.innerHTML = syntaxHighlight(JSON.stringify(result, null, 2));
+            jsonOutput.innerHTML = syntaxHighlight(JSON.stringify(previewResult, null, 2));
+            validationSection.classList.add('hidden'); outputSection.classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            // ETL file upload for all tables
+            if (apiConnected) {
+                setBtnLoading(btnCommit, true);
+                try {
+                    const tableMaps = {};
+                    tableAssignments.forEach((a, idx) => {
+                        tableMaps[a.tableName] = allTableMappings[idx];
+                    });
+                    const config = buildMappingConfig(tableMaps);
+                    const etlResult = await submitETL(config);
+                    setBtnLoading(btnCommit, false);
+                    // Convert ETL response to the shape showInsertResults expects
+                    const modalResults = (etlResult.tables || []).map(t => ({
+                        table: t.table,
+                        inserted: t.inserted || 0,
+                        error: t.error || undefined,
+                        httpOk: !t.error,
+                    }));
+                    showInsertResults(modalResults, etlResult.staged_rows);
+                } catch (err) {
+                    setBtnLoading(btnCommit, false);
+                    showInsertResults([{ table: '(all)', error: err.message, httpOk: false }]);
+                }
+            }
         } else {
-            const result = parsedRows.map(row => buildRowObj(row, mapped));
-            jsonOutput.innerHTML = syntaxHighlight(JSON.stringify(result, null, 2));
+            const tblName = getSelectedTable();
+            // Show preview JSON (first 5 rows only, not the full file)
+            const previewResult = parsedRows.slice(0, 5).map(row => buildRowObj(row, mapped));
+            jsonOutput.innerHTML = syntaxHighlight(JSON.stringify(previewResult, null, 2));
+            validationSection.classList.add('hidden'); outputSection.classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            // ETL file upload
+            if (apiConnected) {
+                setBtnLoading(btnCommit, true);
+                try {
+                    const config = buildMappingConfig({ [tblName]: mapped });
+                    const etlResult = await submitETL(config);
+                    setBtnLoading(btnCommit, false);
+                    const modalResults = (etlResult.tables || []).map(t => ({
+                        table: t.table,
+                        inserted: t.inserted || 0,
+                        error: t.error || undefined,
+                        httpOk: !t.error,
+                    }));
+                    showInsertResults(modalResults, etlResult.staged_rows);
+                } catch (err) {
+                    setBtnLoading(btnCommit, false);
+                    showInsertResults([{ table: tblName, error: err.message, httpOk: false }]);
+                }
+            }
         }
-        validationSection.classList.add('hidden'); outputSection.classList.remove('hidden');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
     function buildRowObj(row, mapped) {
@@ -765,12 +1169,22 @@
 
     btnReset.addEventListener('click', resetAll);
     function resetAll() {
-        form.reset(); currentFile = null; parsedHeaders = []; parsedRows = []; columnProfiles = []; columnMapping = [];
+        form.reset(); currentFile = null; parsedHeaders = []; parsedRows = []; columnProfiles = []; columnMapping = []; totalFileRows = null;
         multiTableMode = false; tableAssignments = []; currentTableIdx = 0; allTableMappings = []; allTableProfiles = [];
         fileInput.value = ''; filePreview.classList.add('hidden'); dropzone.style.display = '';
         document.querySelectorAll('.radio-card').forEach(c => c.classList.remove('selected'));
-        document.querySelector('.radio-card[for="header-yes"]').classList.add('selected'); $('header-yes').checked = true;
-        document.querySelector('.radio-card[for="mode-single"]').classList.add('selected'); $('mode-single').checked = true;
+        const headerYesCard = document.querySelector('.radio-card[for="header-yes"]');
+        if (headerYesCard) headerYesCard.classList.add('selected');
+        $('header-yes').checked = true;
+        const singleCard = document.querySelector('.radio-card[for="mode-single"]');
+        if (singleCard) singleCard.classList.add('selected');
+        $('mode-single').checked = true;
+        // Reset new compact controls
+        const htcb = $('header-toggle-cb'); if (htcb) htcb.checked = true;
+        const si = $('sep-input'); if (si) si.value = ',';
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('mode-btn--active'));
+        const singleBtn = document.querySelector('.mode-btn:first-child');
+        if (singleBtn) singleBtn.classList.add('mode-btn--active');
         singleControls.classList.remove('hidden'); multiHint.classList.add('hidden');
         btnValidateLabel.textContent = 'Validate & Map';
         chipSep.textContent = ','; chipSep.classList.add('active'); customWrapper.classList.add('hidden');
@@ -779,7 +1193,133 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
+    /* ═══════════════════════════════════════ TOAST SYSTEM ═══════════════════════════════════════ */
+    function showToast(type, title, message, duration) {
+        duration = duration || 4000;
+        const container = document.getElementById('toast-container');
+        const icons = { success: '✓', error: '✕', info: 'ℹ' };
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.innerHTML = `<div class="toast-icon">${icons[type] || 'ℹ'}</div><div class="toast-body"><div class="toast-title">${title}</div><div class="toast-message">${message}</div></div><button class="toast-close" aria-label="Close">×</button>`;
+        container.appendChild(toast);
+        const close = () => { toast.classList.add('removing'); setTimeout(() => toast.remove(), 300); };
+        toast.querySelector('.toast-close').addEventListener('click', close);
+        setTimeout(close, duration);
+    }
+
+    /* ═══════════════════════════════════════ INSERT RESULT MODAL ═══════════════════════════════════════ */
+    function showInsertResults(results, stagedRows) {
+        const modal = document.getElementById('insert-result-modal');
+        const icon = document.getElementById('insert-result-icon');
+        const title = document.getElementById('insert-result-title');
+        const msg = document.getElementById('insert-result-message');
+        const details = document.getElementById('insert-result-details');
+        const okBtn = document.getElementById('insert-result-ok');
+
+        const totalInserted = results.reduce((s, r) => s + (r.inserted || 0), 0);
+        const totalErrors = results.reduce((s, r) => s + ((r.errors && r.errors.length) || 0), 0);
+        const anyFailed = results.some(r => !r.httpOk || r.error);
+
+        if (anyFailed) {
+            icon.className = 'insert-result-icon error';
+            icon.textContent = '✕';
+            title.textContent = 'Failed — Rolled Back';
+            const errorMsgs = results.filter(r => r.error).map(r => friendlyError(r.error));
+            msg.textContent = 'No data was committed. All changes have been rolled back.';
+        } else if (totalErrors > 0) {
+            icon.className = 'insert-result-icon error';
+            icon.textContent = '✕';
+            title.textContent = 'Failed — Rolled Back';
+            msg.textContent = `No data was committed. ${totalErrors} error(s) caused a full rollback.`;
+        } else {
+            icon.className = 'insert-result-icon success';
+            icon.textContent = '✓';
+            title.textContent = 'Insert Successful!';
+            const stagedInfo = stagedRows ? ` (${stagedRows.toLocaleString()} rows staged from file)` : '';
+            msg.textContent = `${totalInserted.toLocaleString()} row(s) inserted across ${results.length} table(s).${stagedInfo}`;
+        }
+
+        // Build details table
+        let dHtml = '<table><thead><tr><th>Table</th><th>Inserted</th><th>Errors</th></tr></thead><tbody>';
+        results.forEach(r => {
+            const errCount = r.errors ? r.errors.length : (r.httpOk ? 0 : 1);
+            dHtml += `<tr><td>${r.table}</td><td>${r.inserted || 0}</td><td>${errCount}</td></tr>`;
+            if (r.errors) {
+                r.errors.forEach(e => {
+                    dHtml += `<tr><td></td><td colspan="2" style="color:var(--c-danger);font-size:.78rem">${escHtml(friendlyError(e.error))}</td></tr>`;
+                });
+            }
+            if (r.error && !r.errors) {
+                dHtml += `<tr><td></td><td colspan="2" style="color:var(--c-danger);font-size:.78rem">${escHtml(friendlyError(r.error))}</td></tr>`;
+            }
+        });
+        dHtml += '</tbody></table>';
+        details.innerHTML = dHtml;
+
+        modal.classList.remove('hidden');
+        const cleanup = () => modal.classList.add('hidden');
+        okBtn.onclick = cleanup;
+    }
+
+    function setBtnLoading(btn, loading) {
+        if (loading) {
+            btn._origHTML = btn.innerHTML;
+            btn.classList.add('loading');
+            btn.innerHTML = '<span class="btn-spinner"></span> Inserting…';
+        } else {
+            btn.classList.remove('loading');
+            if (btn._origHTML) btn.innerHTML = btn._origHTML;
+        }
+    }
+
+    /* ═══════════════════════════════════════ API: LOAD SCHEMA ═══════════════════════════════════════ */
+    async function loadSchemaFromAPI() {
+        const statusEl = document.getElementById('api-status');
+        const statusText = statusEl ? statusEl.querySelector('.api-status-text') : null;
+        const apiDot = document.querySelector('.api-dot');
+        try {
+            const resp = await fetch(`${API_BASE}/api/schema`);
+            if (!resp.ok) throw new Error('Schema fetch failed');
+            const schema = await resp.json();
+            if (Object.keys(schema).length > 0) {
+                DB_SCHEMA = schema;
+                apiConnected = true;
+                populateTableDropdown();
+                if (statusEl) { statusEl.className = 'api-status connected'; }
+                if (statusText) { statusText.textContent = 'Connected'; }
+                if (apiDot) { apiDot.style.background = 'var(--c-success)'; }
+                showToast('success', 'Database Connected', `Loaded ${Object.keys(schema).length} table(s) from MySQL.`);
+                console.log('[API] Schema loaded:', Object.keys(schema));
+            }
+        } catch (err) {
+            console.warn('[API] Could not load schema, using fallback:', err.message);
+            apiConnected = false;
+            if (statusEl) { statusEl.className = 'api-status disconnected'; }
+            if (statusText) { statusText.textContent = 'Offline'; }
+            if (apiDot) { apiDot.style.background = 'var(--c-danger)'; }
+        }
+    }
+
+    function populateTableDropdown() {
+        const sel = document.getElementById('db-table-select');
+        if (!sel) return;
+        const currentVal = sel.value;
+        // Keep the placeholder
+        sel.innerHTML = '<option value="" disabled selected>Select a table…</option>';
+        Object.keys(DB_SCHEMA).forEach(tbl => {
+            const opt = document.createElement('option');
+            opt.value = tbl;
+            opt.textContent = tbl;
+            sel.appendChild(opt);
+        });
+        if (currentVal && DB_SCHEMA[currentVal]) sel.value = currentVal;
+    }
+
+    /* ═══════════════════════════════════════ INIT ═══════════════════════════════════════ */
     updateSteps(1); checkValidateReady();
+
+    // Load schema from API on page load
+    loadSchemaFromAPI();
 
     // Dev shortcut: ?demo auto-loads test data and opens assign page
     if (location.search.includes('demo')) {

@@ -1,0 +1,7 @@
+node_modules/
+.mysql_data/
+mysql_error.log
+__pycache__/
+venv/
+*.pyc
+.env
