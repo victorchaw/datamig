@@ -177,7 +177,24 @@
         </div>
       </fieldset>
 
-      <!-- ─── Action bar ─── -->
+      <!-- Connect First Overlay -->
+      <div id="connect-first-overlay" class="connect-first-overlay">
+        <div class="connect-first-content">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#0ea5e9" stroke-width="1.5">
+            <ellipse cx="12" cy="5" rx="9" ry="3"/>
+            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+          </svg>
+          <h3 style="margin:8px 0 4px; font-size:1rem; color:#1e293b;">Connect to a Database</h3>
+          <p style="margin:0 0 14px; font-size:.82rem; color:#64748b; max-width:300px;">Please go to <strong>Settings</strong> and connect to a database first. The table dropdown will populate from your connected database.</p>
+          <button type="button" class="btn btn-primary btn--sm" id="btn-go-settings">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+            Go to Settings
+          </button>
+        </div>
+      </div>
+
+      <!-- Action bar -->
       <div class="action-bar action-bar--compact" id="action-bar-parse">
         <button type="button" class="btn btn-ghost btn--sm" id="btn-reset">Reset</button>
         <button type="button" class="btn btn-primary btn--sm" id="btn-validate" disabled>
@@ -329,6 +346,10 @@
       <pre class="json-output" id="json-output"></pre>
       <div class="action-bar">
         <button type="button" class="btn btn-ghost" id="btn-new-import">← Back to Validation</button>
+        <button type="button" class="btn btn-ghost" id="btn-output-startover">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0h4"/></svg>
+          Start Over
+        </button>
       </div>
     </div>
   </section>
@@ -353,10 +374,111 @@
       <p id="insert-result-message" class="modal-message"></p>
       <div id="insert-result-details" class="insert-result-details"></div>
       <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="insert-result-home">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px;"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Start Over
+        </button>
         <button type="button" class="btn btn-primary" id="insert-result-ok">Done</button>
       </div>
     </div>
   </div>
+
+  <!-- ═══════════  Settings Page  ═══════════ -->
+  <section class="settings-page hidden" id="settings-page">
+    <div class="card migration-card" style="max-width:640px; margin:0 auto;">
+      <div class="compact-header">
+        <h2 class="compact-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          Database Connection
+        </h2>
+        <span id="db-connection-badge" class="badge" style="background:#e2e8f0; color:#475569; font-size:0.75rem; padding:4px 10px; border-radius:20px;">Not Connected</span>
+      </div>
+
+      <div class="settings-db-panel" style="margin-top:1.25rem;">
+        <!-- Row 1: RDBMS Type -->
+        <div class="settings-field" style="margin-bottom:12px;">
+          <label for="db-dialect" class="settings-label">Database Type</label>
+          <div class="select-wrapper select-wrapper--sm" style="width:100%;">
+            <select id="db-dialect" class="form-input">
+              <option value="mysql+pymysql">MySQL</option>
+              <option value="postgresql+psycopg2">PostgreSQL</option>
+              <option value="mssql+pyodbc">SQL Server</option>
+              <option value="sqlite">SQLite (Local File)</option>
+            </select>
+            <span class="select-chevron"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg></span>
+          </div>
+        </div>
+
+        <!-- Row 2: Host + Port -->
+        <div style="display:grid; grid-template-columns: 1fr 120px; gap:10px; margin-bottom:12px;" id="db-host-row">
+          <div class="settings-field">
+            <label for="db-host" class="settings-label">Host</label>
+            <input type="text" id="db-host" class="form-input" placeholder="e.g. 127.0.0.1" value="127.0.0.1" />
+          </div>
+          <div class="settings-field">
+            <label for="db-port" class="settings-label">Port</label>
+            <input type="text" id="db-port" class="form-input" placeholder="3306" value="3306" />
+          </div>
+        </div>
+
+        <!-- Row 3: Username + Password -->
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-bottom:12px;" id="db-cred-row">
+          <div class="settings-field">
+            <label for="db-user" class="settings-label">Username</label>
+            <input type="text" id="db-user" class="form-input" placeholder="root" value="root" />
+          </div>
+          <div class="settings-field">
+            <label for="db-pass" class="settings-label">Password</label>
+            <input type="password" id="db-pass" class="form-input" placeholder="••••••" />
+          </div>
+        </div>
+
+        <!-- Row 4: Database Name -->
+        <div class="settings-field" style="margin-bottom:16px;">
+          <label for="db-name" class="settings-label">Database Name</label>
+          <input type="text" id="db-name" class="form-input" placeholder="e.g. datamig_db" value="datamig_db" />
+        </div>
+
+        <!-- Connect Button -->
+        <div style="display:flex; align-items:center; gap:12px;">
+          <button type="button" class="btn btn-primary" id="btn-db-connect" style="min-width:160px;">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:6px;"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+            Test Connection
+          </button>
+          <span id="db-connection-status" style="font-size:0.8rem; color:#64748b;">Enter credentials and click Test Connection</span>
+        </div>
+      </div>
+
+      <!-- Connected Tables Preview -->
+      <div id="db-tables-preview" class="hidden" style="margin-top:1.5rem; border-top:1px solid #e2e8f0; padding-top:1rem;">
+        <h3 style="font-size:0.85rem; font-weight:600; color:#334155; margin-bottom:8px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px; vertical-align:-2px;"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          Available Tables
+        </h3>
+        <div id="db-tables-list" style="display:flex; flex-wrap:wrap; gap:6px;"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════  History Page  ═════════════ -->
+  <section class="settings-page hidden" id="history-page">
+    <div class="card migration-card" style="max-width:900px; margin:0 auto;">
+      <div class="compact-header">
+        <h2 class="compact-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Migration History
+        </h2>
+        <button type="button" class="btn btn-ghost btn--sm" id="btn-clear-history">Clear History</button>
+      </div>
+      <p style="font-size:.82rem; color:#64748b; margin:0 0 1rem;">A log of all data migration operations performed in this session.</p>
+      <div id="history-list" style="display:flex; flex-direction:column; gap:8px;">
+        <div class="history-empty" id="history-empty" style="text-align:center; padding:2rem; color:#94a3b8; font-size:.85rem;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5" style="margin-bottom:8px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <br>No migration history yet. Complete an import to see it here.
+        </div>
+      </div>
+    </div>
+  </section>
 
   <!-- Toast Container -->
   <div id="toast-container" class="toast-container"></div>

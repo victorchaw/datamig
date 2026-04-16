@@ -22,7 +22,8 @@ from pathlib import Path
 from io import BytesIO
 
 import pandas as pd
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from pydantic import BaseModel
+from fastapi import FastAPI, File, Form, HTTPException, Header, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -38,13 +39,30 @@ PORT = int(os.environ.get("PORT", 3000))
 BASE_DIR = Path(__file__).resolve().parent
 
 # ─── SQLAlchemy Engine ───────────────────────────────────────
-engine = create_engine(
+default_engine = create_engine(
     DATABASE_URL,
     pool_size=10,
     max_overflow=5,
     pool_pre_ping=True,  # auto-reconnect stale connections
     echo=False,
 )
+
+# ─── Session-based engine management ─────────────────────────
+SESSIONS: dict = {}  # session_id → SQLAlchemy engine
+
+def get_engine(session_id: str = None):
+    """Return the engine for a given session, or the default."""
+    if session_id and session_id in SESSIONS:
+        return SESSIONS[session_id]
+    return default_engine
+
+class DbCredentials(BaseModel):
+    dialect: str
+    host: str = ""
+    port: str = ""
+    username: str = ""
+    password: str = ""
+    dbname: str = ""
 
 # ─── FastAPI App ─────────────────────────────────────────────
 app = FastAPI(
@@ -74,15 +92,16 @@ def _is_autoincrement(col_info: dict) -> bool:
 # ══════════════════════════════════════════════════════════════
 
 @app.get("/api/health")
-def health_check():
+def health_check(x_session_id: str = Header(None)):
     """Check database connectivity."""
+    eng = get_engine(x_session_id)
     try:
-        with engine.connect() as conn:
+        with eng.connect() as conn:
             conn.execute(text("SELECT 1"))
         return {
             "status": "ok",
             "database": "connected",
-            "dialect": engine.dialect.name,
+            "dialect": eng.dialect.name,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     except Exception as e:
@@ -92,14 +111,41 @@ def health_check():
         )
 
 
+@app.post("/api/connect")
+def connect_db(creds: DbCredentials):
+    """Test a database connection and return a session ID if successful."""
+    if creds.dialect == "sqlite":
+        db_url = f"sqlite:///./{creds.dbname}"
+    else:
+        port_str = f":{creds.port}" if creds.port else ""
+        pass_str = f":{creds.password}" if creds.password else ""
+        user_str = f"{creds.username}{pass_str}@" if creds.username else ""
+        db_url = f"{creds.dialect}://{user_str}{creds.host}{port_str}/{creds.dbname}"
+        if creds.dialect == "mssql+pyodbc":
+            db_url += "?driver=ODBC+Driver+17+for+SQL+Server"
+
+    try:
+        new_engine = create_engine(db_url, pool_pre_ping=True)
+        with new_engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        sid = uuid.uuid4().hex
+        SESSIONS[sid] = new_engine
+        print(f"[CONNECT] Session {sid[:8]}… → {new_engine.dialect.name}")
+        return {"success": True, "session_id": sid, "dialect": new_engine.dialect.name}
+    except Exception as e:
+        print(f"[CONNECT] Failed: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @app.get("/api/schema")
-def get_schema():
+def get_schema(x_session_id: str = Header(None)):
     """
     Return database schema dynamically using SQLAlchemy inspection.
     Works with any supported RDBMS.
     """
+    eng = get_engine(x_session_id)
     try:
-        insp = inspect(engine)
+        insp = inspect(eng)
         table_names = insp.get_table_names()
         schema: dict = {}
 
@@ -168,7 +214,7 @@ def get_schema():
 
 
 @app.post("/api/insert/{table_name}")
-async def insert_rows(table_name: str, request: Request):
+async def insert_rows(table_name: str, request: Request, x_session_id: str = Header(None)):
     """
     Bulk-insert a JSON array of row objects into the specified table.
     Auto-increment columns are automatically stripped from inserts.
@@ -177,8 +223,9 @@ async def insert_rows(table_name: str, request: Request):
     if not isinstance(rows, list) or len(rows) == 0:
         raise HTTPException(status_code=400, detail="Request body must be a non-empty array of row objects.")
 
+    eng = get_engine(x_session_id)
     try:
-        insp = inspect(engine)
+        insp = inspect(eng)
 
         # Validate table exists
         if table_name not in insp.get_table_names():
@@ -207,7 +254,7 @@ async def insert_rows(table_name: str, request: Request):
         inserted = 0
         errors = []
 
-        with Session(engine) as session:
+        with Session(eng) as session:
             try:
                 for i, row in enumerate(rows):
                     params = {}
@@ -264,6 +311,7 @@ async def insert_rows(table_name: str, request: Request):
 async def etl_upload(
     file: UploadFile = File(...),
     mapping_config: str = Form(...),
+    x_session_id: str = Header(None),
 ):
     """
     ETL pipeline for large file migrations.
@@ -284,7 +332,8 @@ async def etl_upload(
             raise HTTPException(status_code=400, detail="mapping_config must include at least one table in 'tables'.")
 
         # Validate all destination tables exist
-        insp = inspect(engine)
+        eng = get_engine(x_session_id)
+        insp = inspect(eng)
         existing_tables = set(insp.get_table_names())
         for tbl_name in table_configs:
             if tbl_name not in existing_tables:
@@ -309,7 +358,7 @@ async def etl_upload(
         for chunk in chunk_iter:
             # Normalize column names: strip whitespace
             chunk.columns = [str(c).strip() for c in chunk.columns]
-            chunk.to_sql(staging_table, con=engine, if_exists="append", index=False)
+            chunk.to_sql(staging_table, con=eng, if_exists="append", index=False)
             total_staged += len(chunk)
 
         staging_created = True
@@ -319,7 +368,7 @@ async def etl_upload(
         # Use explicit transaction — all-or-nothing
         all_results = []
         has_error = False
-        with engine.connect() as conn:
+        with eng.connect() as conn:
             trans = conn.begin()
             for tbl_name, tbl_config in table_configs.items():
                 mappings = tbl_config.get("mappings", [])
@@ -346,7 +395,7 @@ async def etl_upload(
                     all_results.append({"table": tbl_name, "inserted": 0, "error": "All mapped columns are auto-increment."})
                     break
 
-                q = '"' if engine.dialect.name in ['postgresql', 'sqlite'] else '`'
+                q = '"' if eng.dialect.name in ['postgresql', 'sqlite'] else '`'
                 db_cols = ", ".join(f'{q}{m["dbColumn"]}{q}' for m in filtered_mappings)
                 select_exprs = []
                 joins = []
@@ -368,7 +417,7 @@ async def etl_upload(
                 if op == "insert":
                     sql = f"INSERT INTO {q}{tbl_name}{q} ({db_cols}) SELECT {select_clause} FROM {q}{staging_table}{q} {joins_clause}"
                 elif op == "update":
-                    dialect = engine.dialect.name
+                    dialect = eng.dialect.name
                     match_exprs = []
                     for mk in match_keys:
                         mapping = next((m for m in filtered_mappings if m["dbColumn"] == mk), None)
@@ -402,7 +451,7 @@ async def etl_upload(
                         sql = f"UPDATE {q}{tbl_name}{q} SET {set_clause} FROM {q}{tbl_name}{q} INNER JOIN {q}{staging_table}{q} ON {match_clause} {joins_clause}"
 
                 elif op == "upsert":
-                    dialect = engine.dialect.name
+                    dialect = eng.dialect.name
                     set_exprs = []
                     for i, m in enumerate(filtered_mappings):
                         if m["dbColumn"] not in match_keys:
@@ -422,7 +471,7 @@ async def etl_upload(
                         sql = f"INSERT INTO {q}{tbl_name}{q} ({db_cols}) SELECT {select_clause} FROM {q}{staging_table}{q} {joins_clause} ON CONFLICT ({pk_match}) DO UPDATE SET {set_clause}"
                     else:
                         has_error = True
-                        all_results.append({"table": tbl_name, "inserted": 0, "error": f"Upsert not yet supported for dialect '{engine.dialect.name}'."})
+                        all_results.append({"table": tbl_name, "inserted": 0, "error": f"Upsert not yet supported for dialect '{eng.dialect.name}'."})
                         break
 
                 try:
@@ -469,7 +518,7 @@ async def etl_upload(
         # ── Step 3: Cleanup — always drop staging table ──────
         if staging_created:
             try:
-                with engine.begin() as conn:
+                with eng.begin() as conn:
                     conn.execute(text(f"DROP TABLE IF EXISTS `{staging_table}`"))
                 print(f"[ETL] Cleaned up {staging_table}")
             except Exception:
@@ -477,11 +526,12 @@ async def etl_upload(
 
 
 @app.get("/api/tables/{table_name}/rows")
-def get_rows(table_name: str, limit: int = 100):
+def get_rows(table_name: str, limit: int = 100, x_session_id: str = Header(None)):
     """Return up to `limit` rows from the specified table."""
+    eng = get_engine(x_session_id)
     limit = min(limit, 1000)
     try:
-        with engine.connect() as conn:
+        with eng.connect() as conn:
             result = conn.execute(text(f"SELECT * FROM `{table_name}` LIMIT :lim"), {"lim": limit})
             rows = [dict(row._mapping) for row in result]
         return {"table": table_name, "count": len(rows), "rows": rows}
@@ -516,6 +566,6 @@ if __name__ == "__main__":
     print(f"  │  datamig API running on port {PORT}        │")
     print(f"  │  http://localhost:{PORT}                  │")
     print(f"  │  Swagger docs: http://localhost:{PORT}/docs │")
-    print(f"  │  Database: {engine.dialect.name:<25s}  │")
+    print(f"  │  Database: {default_engine.dialect.name:<25s}  │")
     print(f"  └─────────────────────────────────────────┘\n")
     uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="info")

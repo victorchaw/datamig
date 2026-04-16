@@ -161,6 +161,7 @@
     const btnCopyJson = $('btn-copy-json'), btnNewImport = $('btn-new-import');
 
     /* ═══════════════════════════════════════ STATE ═══════════════════════════════════════ */
+    let sessionId = null; // Session ID from /api/connect for dynamic DB connections
     let currentFile = null, parsedHeaders = [], parsedRows = [], columnProfiles = [], columnMapping = [];
     let totalFileRows = null; // actual total rows in the file (may be more than parsedRows for large files)
     let multiTableMode = false;
@@ -490,7 +491,12 @@
         const tMiss = ap.reduce((s, p) => s + p.missing, 0), tW = ap.reduce((s, p) => s + p.weird, 0), tV = ap.reduce((s, p) => s + p.valid, 0);
         const tCells = tR * tC, vP = tCells ? ((tV / tCells) * 100).toFixed(1) : '0', wP = tCells ? ((tW / tCells) * 100).toFixed(0) : '0', mP = tCells ? ((tMiss / tCells) * 100).toFixed(0) : '0';
         rowCountBadge.textContent = tR + ' row' + (tR !== 1 ? 's' : '');
-        summaryEl.innerHTML = `<div class="summary-banner"><div class="summary-stat-block"><span class="summary-stat-label">Total Rows</span><span class="summary-stat-value">${tR.toLocaleString()}</span></div><div class="summary-stat-block"><span class="summary-stat-label">Columns</span><span class="summary-stat-value">${tC}</span></div><div class="summary-stat-block"><span class="summary-stat-label">Mapped</span><span class="summary-stat-value">${tM} / ${columnMapping.length}</span></div><div class="summary-bar-section"><div class="quality-bar"><div class="quality-bar-valid" style="width:${vP}%"></div><div class="quality-bar-weird" style="width:${wP}%"></div><div class="quality-bar-missing" style="width:${mP}%"></div></div><div style="display:flex;gap:1.25rem;font-size:.72rem;"><span class="summary-stat-label"><span class="quality-dot dot-valid"></span> Valid ${tV.toLocaleString()} (${vP}%)</span><span class="summary-stat-label"><span class="quality-dot dot-weird"></span> Weird ${tW.toLocaleString()} (${wP}%)</span><span class="summary-stat-label"><span class="quality-dot dot-missing"></span> Missing ${tMiss.toLocaleString()} (${mP}%)</span></div></div></div>`;
+        // Conditionally build quality stat items
+        const qualityStats = [];
+        qualityStats.push(`<span class="summary-stat-label"><span class="quality-dot dot-valid"></span> Valid ${tV.toLocaleString()} (${vP}%)</span>`);
+        if (tW > 0) qualityStats.push(`<span class="summary-stat-label"><span class="quality-dot dot-weird"></span> Weird ${tW.toLocaleString()} (${wP}%)</span>`);
+        if (tMiss > 0) qualityStats.push(`<span class="summary-stat-label"><span class="quality-dot dot-missing"></span> Missing ${tMiss.toLocaleString()} (${mP}%)</span>`);
+        summaryEl.innerHTML = `<div class="summary-banner"><div class="summary-stat-block"><span class="summary-stat-label">Total Rows</span><span class="summary-stat-value">${tR.toLocaleString()}</span></div><div class="summary-stat-block"><span class="summary-stat-label">Columns</span><span class="summary-stat-value">${tC}</span></div><div class="summary-stat-block"><span class="summary-stat-label">Mapped</span><span class="summary-stat-value">${tM} / ${columnMapping.length}</span></div><div class="summary-bar-section"><div class="quality-bar"><div class="quality-bar-valid" style="width:${vP}%"></div><div class="quality-bar-weird" style="width:${wP}%"></div><div class="quality-bar-missing" style="width:${mP}%"></div></div><div style="display:flex;gap:1.25rem;font-size:.72rem;">${qualityStats.join('')}</div></div></div>`;
     }
 
     function renderDataCards() {
@@ -516,18 +522,57 @@
                 ? `<span class="strip-samples">${samples.map(s => `<code>${escHtml(s)}</code>`).join(' ')}</span>` 
                 : '';
 
-            // Stats + quality flags
-            let statsHtml = '';
-            if (p.numStats) {
-                statsHtml = `<span class="strip-stat">Range: ${p.numStats.min.toLocaleString()} – ${p.numStats.max.toLocaleString()}</span>`;
-            } else if (p.nonEmpty > 0) {
-                const uniqueSet = new Set();
-                const allVals = [];
-                for (let r = 0; r < parsedRows.length; r++) { const v = parsedRows[r][p.colIdx]; if (v && v.trim()) { uniqueSet.add(v); allVals.push(v); } }
-                const dupes = allVals.length - uniqueSet.size;
-                statsHtml = `<span class="strip-stat">${p.missing} null · Max: ${p.maxLen} · ${dupes} dupe</span>`;
+            // ── Collect column values for profiling ──
+            const allVals = [], numVals = [];
+            const freq = {};
+            for (let r = 0; r < parsedRows.length; r++) {
+                const v = (parsedRows[r][p.colIdx] || '').trim();
+                if (v) { allVals.push(v); freq[v] = (freq[v] || 0) + 1; }
+                if (p.inferredType === 'Number') { const n = parseFloat(v); if (!isNaN(n)) numVals.push(n); }
             }
-            // Quality warnings for non-text types too
+            const uniqueCount = new Set(allVals).size;
+            const dupes = allVals.length - uniqueCount;
+
+            // ── Build sparkline + stats by type ──
+            let statsHtml = '';
+            const SPARK_BARS = '▁▂▃▄▅▆▇█';
+
+            if (p.inferredType === 'Number' && p.numStats && numVals.length > 1) {
+                // Sparkline: Unicode block chars showing distribution
+                const mn = p.numStats.min, mx = p.numStats.max;
+                const range = mx - mn || 1;
+                const BINS = 10;
+                const buckets = new Array(BINS).fill(0);
+                numVals.forEach(v => { const b = Math.min(Math.floor(((v - mn) / range) * BINS), BINS - 1); buckets[b]++; });
+                const maxB = Math.max(...buckets, 1);
+                const sparkline = buckets.map(b => SPARK_BARS[Math.min(Math.round((b / maxB) * 7), 7)]).join('');
+                // Mean & Std Dev
+                const mean = numVals.reduce((a, b) => a + b, 0) / numVals.length;
+                const stdDev = Math.sqrt(numVals.reduce((s, v) => s + (v - mean) ** 2, 0) / numVals.length);
+                const fmtMean = mean % 1 === 0 ? mean.toLocaleString() : mean.toFixed(1);
+                const fmtStd = stdDev % 1 === 0 ? stdDev.toLocaleString() : stdDev.toFixed(1);
+                statsHtml = `<span class="strip-stat">${p.numStats.min.toLocaleString()} → ${p.numStats.max.toLocaleString()}</span>`
+                    + `<span class="strip-sparkline" title="Distribution: min=${mn}, max=${mx}, μ=${fmtMean}, σ=${fmtStd}" style="color:${typeColor}">${sparkline}</span>`
+                    + `<span class="strip-stat-detail">μ ${fmtMean} · σ ${fmtStd} · ${uniqueCount} uniq</span>`;
+            } else if (p.inferredType === 'Number' && p.numStats) {
+                statsHtml = `<span class="strip-stat">${p.numStats.min.toLocaleString()} → ${p.numStats.max.toLocaleString()} · ${uniqueCount} uniq</span>`;
+            } else if (p.nonEmpty > 0) {
+                // Text: top value + frequency sparkline
+                const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+                const topVal = sorted[0] ? sorted[0][0] : '';
+                const topCount = sorted[0] ? sorted[0][1] : 0;
+                const topPct = ((topCount / allVals.length) * 100).toFixed(0);
+                const topDisplay = topVal.length > 15 ? topVal.substring(0, 12) + '…' : topVal;
+                // Build freq sparkline from top 10  
+                const topN = sorted.slice(0, 10);
+                const maxF = topN[0] ? topN[0][1] : 1;
+                const sparkline = topN.map(([, c]) => SPARK_BARS[Math.min(Math.round((c / maxF) * 7), 7)]).join('');
+                statsHtml = `<span class="strip-stat">${uniqueCount} uniq · ${dupes} dupe</span>`
+                    + `<span class="strip-sparkline" title="Frequency of top ${topN.length} values" style="color:${typeColor}">${sparkline}</span>`
+                    + `<span class="strip-stat-detail">top: "${escHtml(topDisplay)}" ${topPct}%</span>`;
+            }
+
+            // Quality warnings
             let qualityHtml = '';
             if (p.missing > 0) qualityHtml += `<span class="strip-warn strip-warn-missing" title="${p.missing} missing values">${p.missing} null</span>`;
             if (p.weird > 0) qualityHtml += `<span class="strip-warn strip-warn-weird" title="${p.weird} weird/non-ASCII values">${p.weird} weird</span>`;
@@ -1024,8 +1069,11 @@
         const formData = new FormData();
         formData.append('file', currentFile);
         formData.append('mapping_config', JSON.stringify(mappingConfig));
+        const headers = {};
+        if (sessionId) headers['x-session-id'] = sessionId;
         const resp = await fetch(`${API_BASE}/api/etl-upload`, {
             method: 'POST',
+            headers,
             body: formData,
         });
         const data = await resp.json();
@@ -1168,6 +1216,43 @@
     });
 
     btnReset.addEventListener('click', resetAll);
+    const btnOutputStartover = $('btn-output-startover');
+    if (btnOutputStartover) btnOutputStartover.addEventListener('click', goToImportPage);
+    /* ═══════════════════════════════════════ GO TO IMPORT (Start Over) ═══════════════════════════════════════ */
+    function goToImportPage() {
+        // 1. Hide ALL non-import sections FIRST (before resetAll which may throw)
+        const _os = document.getElementById('output-section');
+        const _vs = document.getElementById('validation-section');
+        const _as = document.getElementById('assign-section');
+        const _sp = document.getElementById('settings-page');
+        const _hp = document.getElementById('history-page');
+        const _mc = document.querySelector('.main-content');
+        const _ip = document.getElementById('migration-form');
+        const _modal = document.getElementById('insert-result-modal');
+
+        if (_os) _os.classList.add('hidden');
+        if (_vs) _vs.classList.add('hidden');
+        if (_as) _as.classList.add('hidden');
+        if (_sp) _sp.classList.add('hidden');
+        if (_hp) _hp.classList.add('hidden');
+        if (_modal) _modal.classList.add('hidden');
+
+        // 2. Show import page
+        if (_mc) _mc.style.display = '';
+        if (_ip) { _ip.classList.remove('hidden'); _ip.style.display = ''; }
+
+        // 3. Update nav state
+        document.querySelectorAll('.topbar-nav .nav-link').forEach(l => {
+            l.classList.remove('active');
+            if (l.textContent.trim() === 'Import') l.classList.add('active');
+        });
+
+        // 4. Reset form state (wrapped in try-catch so navigation always works)
+        try { resetAll(); } catch (e) { console.warn('resetAll error:', e); }
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
     function resetAll() {
         form.reset(); currentFile = null; parsedHeaders = []; parsedRows = []; columnProfiles = []; columnMapping = []; totalFileRows = null;
         multiTableMode = false; tableAssignments = []; currentTableIdx = 0; allTableMappings = []; allTableProfiles = [];
@@ -1207,6 +1292,56 @@
         setTimeout(close, duration);
     }
 
+    /* ═══════════════════════════════════════ HISTORY SYSTEM ═══════════════════════════════════════ */
+    let migrationHistory = [];
+
+    function addHistoryEntry(entry) {
+        migrationHistory.unshift(entry);
+        renderHistory();
+    }
+
+    function renderHistory() {
+        const list = $('history-list');
+        const empty = $('history-empty');
+        if (!list) return;
+        if (migrationHistory.length === 0) {
+            if (empty) empty.style.display = '';
+            // Remove all entries but keep the empty placeholder
+            list.querySelectorAll('.history-entry').forEach(el => el.remove());
+            return;
+        }
+        if (empty) empty.style.display = 'none';
+        // Rebuild
+        list.querySelectorAll('.history-entry').forEach(el => el.remove());
+        migrationHistory.forEach(h => {
+            const div = document.createElement('div');
+            div.className = 'history-entry';
+            const iconClass = h.success ? 'success' : 'error';
+            const iconChar = h.success ? '✓' : '✗';
+            div.innerHTML = `
+                <div class="history-icon ${iconClass}">${iconChar}</div>
+                <div class="history-body">
+                    <div class="history-title">${escHtml(h.file)} → ${h.tables.map(t => escHtml(t)).join(', ')}</div>
+                    <div class="history-meta">
+                        <span>${h.operation.toUpperCase()}</span>
+                        <span>${h.rows.toLocaleString()} rows</span>
+                        <span>${h.success ? 'Success' : 'Failed'}</span>
+                    </div>
+                </div>
+                <div class="history-time">${h.time}</div>
+            `;
+            list.appendChild(div);
+        });
+    }
+
+    const btnClearHistory = $('btn-clear-history');
+    if (btnClearHistory) {
+        btnClearHistory.addEventListener('click', () => {
+            migrationHistory = [];
+            renderHistory();
+        });
+    }
+
     /* ═══════════════════════════════════════ INSERT RESULT MODAL ═══════════════════════════════════════ */
     function showInsertResults(results, stagedRows) {
         const modal = document.getElementById('insert-result-modal');
@@ -1215,6 +1350,7 @@
         const msg = document.getElementById('insert-result-message');
         const details = document.getElementById('insert-result-details');
         const okBtn = document.getElementById('insert-result-ok');
+        const homeBtn = document.getElementById('insert-result-home');
 
         const totalInserted = results.reduce((s, r) => s + (r.inserted || 0), 0);
         const totalErrors = results.reduce((s, r) => s + ((r.errors && r.errors.length) || 0), 0);
@@ -1239,6 +1375,18 @@
             msg.textContent = `${totalInserted.toLocaleString()} row(s) inserted across ${results.length} table(s).${stagedInfo}`;
         }
 
+        // Log to history
+        const tableNames = results.map(r => r.table);
+        const op = document.getElementById('operation-select')?.value || 'insert';
+        addHistoryEntry({
+            file: currentFile ? currentFile.name : 'Unknown',
+            tables: tableNames,
+            operation: op,
+            rows: totalInserted,
+            success: !anyFailed && totalErrors === 0,
+            time: new Date().toLocaleTimeString(),
+        });
+
         // Build details table
         let dHtml = '<table><thead><tr><th>Table</th><th>Inserted</th><th>Errors</th></tr></thead><tbody>';
         results.forEach(r => {
@@ -1259,6 +1407,13 @@
         modal.classList.remove('hidden');
         const cleanup = () => modal.classList.add('hidden');
         okBtn.onclick = cleanup;
+        // Start Over button — reset and go back to import page
+        if (homeBtn) {
+            homeBtn.onclick = () => {
+                cleanup();
+                goToImportPage();
+            };
+        }
     }
 
     function setBtnLoading(btn, loading) {
@@ -1278,26 +1433,53 @@
         const statusText = statusEl ? statusEl.querySelector('.api-status-text') : null;
         const apiDot = document.querySelector('.api-dot');
         try {
-            const resp = await fetch(`${API_BASE}/api/schema`);
+            const headers = {};
+            if (sessionId) headers['x-session-id'] = sessionId;
+            const resp = await fetch(`${API_BASE}/api/schema`, { headers });
             if (!resp.ok) throw new Error('Schema fetch failed');
             const schema = await resp.json();
             if (Object.keys(schema).length > 0) {
                 DB_SCHEMA = schema;
                 apiConnected = true;
                 populateTableDropdown();
+                updateSettingsTablesPreview();
+                updateConnectOverlay();
                 if (statusEl) { statusEl.className = 'api-status connected'; }
                 if (statusText) { statusText.textContent = 'Connected'; }
                 if (apiDot) { apiDot.style.background = 'var(--c-success)'; }
-                showToast('success', 'Database Connected', `Loaded ${Object.keys(schema).length} table(s) from MySQL.`);
+                showToast('success', 'Database Connected', `Loaded ${Object.keys(schema).length} table(s).`);
                 console.log('[API] Schema loaded:', Object.keys(schema));
             }
         } catch (err) {
             console.warn('[API] Could not load schema, using fallback:', err.message);
             apiConnected = false;
+            updateConnectOverlay();
             if (statusEl) { statusEl.className = 'api-status disconnected'; }
             if (statusText) { statusText.textContent = 'Offline'; }
             if (apiDot) { apiDot.style.background = 'var(--c-danger)'; }
         }
+    }
+
+    /* ═══════════════════════════════════════ CONNECT-FIRST OVERLAY ═══════════════════════════════════════ */
+    function updateConnectOverlay() {
+        const overlay = $('connect-first-overlay');
+        if (!overlay) return;
+        // Require explicit user connection via Settings (sessionId) to dismiss overlay
+        if (sessionId && Object.keys(DB_SCHEMA).length > 0) {
+            overlay.classList.add('hidden');
+        } else {
+            overlay.classList.remove('hidden');
+        }
+    }
+
+    // "Go to Settings" button inside the overlay
+    const btnGoSettings = $('btn-go-settings');
+    if (btnGoSettings) {
+        btnGoSettings.addEventListener('click', () => {
+            // Simulate clicking the Settings nav link
+            const settingsLink = [...navLinks].find(l => l.textContent.trim() === 'Settings');
+            if (settingsLink) settingsLink.click();
+        });
     }
 
     function populateTableDropdown() {
@@ -1315,10 +1497,121 @@
         if (currentVal && DB_SCHEMA[currentVal]) sel.value = currentVal;
     }
 
+    /* ═══════════════════════════════════════ SETTINGS: Tables Preview ═══════════════════════════════════════ */
+    function updateSettingsTablesPreview() {
+        const preview = $('db-tables-preview');
+        const list = $('db-tables-list');
+        if (!preview || !list) return;
+        const tables = Object.keys(DB_SCHEMA);
+        if (tables.length === 0) { preview.classList.add('hidden'); return; }
+        preview.classList.remove('hidden');
+        list.innerHTML = tables.map(t => {
+            const colCount = DB_SCHEMA[t].columns ? DB_SCHEMA[t].columns.length : 0;
+            return `<span class="db-table-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>${t} <small style="color:var(--c-text-light);">(${colCount} cols)</small></span>`;
+        }).join('');
+    }
+
+    /* ═══════════════════════════════════════ SETTINGS: DB Connect ═══════════════════════════════════════ */
+    const btnDbConnect = $('btn-db-connect');
+    if (btnDbConnect) {
+        btnDbConnect.addEventListener('click', async () => {
+            const btn = btnDbConnect;
+            const origHTML = btn.innerHTML;
+            btn.innerHTML = '<div class="btn-spinner" style="width:14px;height:14px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite;display:inline-block;"></div> Connecting…';
+            btn.disabled = true;
+            const statusSpan = $('db-connection-status');
+            const badge = $('db-connection-badge');
+            try {
+                const creds = {
+                    dialect: $('db-dialect').value,
+                    host: $('db-host').value,
+                    port: $('db-port').value,
+                    username: $('db-user').value,
+                    password: $('db-pass').value,
+                    dbname: $('db-name').value
+                };
+                const resp = await fetch(`${API_BASE}/api/connect`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(creds)
+                });
+                const data = await resp.json();
+                if (!resp.ok) throw new Error(data.detail || 'Connection failed');
+
+                sessionId = data.session_id;
+                if (statusSpan) { statusSpan.textContent = '✓ Connected — ' + data.dialect; statusSpan.className = 'status-success'; }
+                if (badge) { badge.textContent = '● Connected'; badge.className = 'badge connected'; }
+                showToast('success', 'Database Connected', 'Loading schema…');
+                await loadSchemaFromAPI();
+            } catch (err) {
+                if (statusSpan) { statusSpan.textContent = '✗ ' + friendlyError(err.message); statusSpan.className = 'status-fail'; }
+                if (badge) { badge.textContent = 'Not Connected'; badge.className = ''; badge.style.cssText = 'background:#fef2f2; color:#991b1b; font-size:0.75rem; padding:4px 10px; border-radius:20px;'; }
+                sessionId = null;
+                showToast('error', 'Connection Error', friendlyError(err.message), 6000);
+            } finally {
+                btn.innerHTML = origHTML;
+                btn.disabled = false;
+            }
+        });
+    }
+
+    /* ═══════════════════════════════════════ NAV: Page Switching ═══════════════════════════════════════ */
+    const navLinks = document.querySelectorAll('.topbar-nav .nav-link');
+    const importPage = $('migration-form');
+    const settingsPage = $('settings-page');
+    const historyPage = $('history-page');
+    // All "pages" managed by nav
+    const allPages = [
+        { key: 'Import', el: importPage },
+        { key: 'History', el: historyPage },
+        { key: 'Settings', el: settingsPage },
+    ];
+    // Also hide non-import sections when switching
+    const importRelatedSections = [validationSection, assignSection, outputSection];
+
+    navLinks.forEach(link => {
+        link.addEventListener('click', (e) => {
+            e.preventDefault();
+            const label = link.textContent.trim();
+            navLinks.forEach(l => l.classList.remove('active'));
+            link.classList.add('active');
+
+            // Hide everything first
+            allPages.forEach(p => { if (p.el) p.el.classList.add('hidden'); });
+            importRelatedSections.forEach(s => { if (s) s.classList.add('hidden'); });
+            if (importPage) importPage.style.display = 'none';
+            mainContent.style.display = 'none';
+
+            if (label === 'Import') {
+                mainContent.style.display = '';
+                if (importPage) { importPage.classList.remove('hidden'); importPage.style.display = ''; }
+            } else if (label === 'History') {
+                mainContent.style.display = 'none';
+                if (historyPage) historyPage.classList.remove('hidden');
+                renderHistory();
+            } else if (label === 'Settings') {
+                mainContent.style.display = 'none';
+                if (settingsPage) settingsPage.classList.remove('hidden');
+            }
+        });
+    });
+
+    /* ═══════════════════════════════════════ SETTINGS: Dialect Toggle ═══════════════════════════════════════ */
+    const dialectSelect = $('db-dialect');
+    if (dialectSelect) {
+        dialectSelect.addEventListener('change', () => {
+            const isSqlite = dialectSelect.value === 'sqlite';
+            const hostRow = $('db-host-row');
+            const credRow = $('db-cred-row');
+            if (hostRow) hostRow.style.display = isSqlite ? 'none' : 'grid';
+            if (credRow) credRow.style.display = isSqlite ? 'none' : 'grid';
+        });
+    }
+
     /* ═══════════════════════════════════════ INIT ═══════════════════════════════════════ */
     updateSteps(1); checkValidateReady();
 
-    // Load schema from API on page load
+    // Load schema from API on page load (uses default engine)
     loadSchemaFromAPI();
 
     // Dev shortcut: ?demo auto-loads test data and opens assign page

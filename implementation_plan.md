@@ -1,128 +1,43 @@
-# UI Redesign & Flat File Support — Implementation Plan
+# Add Output Selection & Database Connection
 
-## Overview
+This plan outlines the architecture for allowing users to choose how their data is exported, directly addressing your request to support JSON, raw SQL queries, and direct database connections via a dynamic credential form.
 
-Refactor the data migration tool to be more minimal, support all flat files (not just CSV), and redesign the validation/mapping page with professional data profiling.
+## Background & Approach
 
----
+Currently, the tool relies on a static `DATABASE_URL` specified in your server configuration. 
+Since databases (like MySQL and PostgreSQL) don't use standard "login pages" you can redirect a browser to, we must provide a credential form on the landing page. Users will type their credentials (host, username, password), and we will establish a connection dynamically. To keep this secure, the backend will temporarily stash these credentials securely in memory (tied to a session ID) rather than saving them to a file.
 
-## 1. Fix Mode Toggle Alignment
+## Proposed Changes
 
-**Problem:** The segmented control for "Single Table / Multi Table" is taller than the select dropdowns, causing visual misalignment.
+### Frontend (`index.html` & `app.js`)
+*   **[MODIFY] `index.html`**
+    *   Add a new **"Output Destination" section** below the file upload area with three radio cards:
+        1. **Generate JSON**
+        2. **Generate SQL Queries**
+        3. **Connect to Database**
+    *   Add a **Database Connection Form** that appears only when option #3 is selected. It will have fields for: RDBMS Type (MySQL, Postgres, SQL Server, etc.), Host, Port, Username, Password (masked), and Database Name.
+*   **[MODIFY] `app.js`**
+    *   Update the "Commit" logic to branch based on the selected output.
+    *   If JSON: Package the mapping and data, and show the JSON instantly in the Output modal.
+    *   If SQL: Call a new backend endpoint to strictly generate and return SQL text, then show it in a copyable text area.
+    *   If Database: Send the user's credentials to the backend to test the connection *before* proceeding to the mapping page (since we need the real DB schema to map!). 
 
-**Fix in CSS:** Add `align-items: center` to `.dest-row` and constrain `.mode-toggle` height to match select height.
+### Backend (`server.py`)
+*   **[MODIFY] `server.py`**
+    *   Add a new **`/api/connect` endpoint** that accepts database credentials from the frontend, attempts a connection, and if successful, returns a secure `session_id`. The backend will hold the connection string securely in memory for that session.
+    *   Update `/api/schema` and `/api/etl-upload` to accept the `session_id` so they act on the user's connected database rather than a hardcoded default.
+    *   Add a new **`/api/generate-sql` endpoint** to return raw, copy-pasteable SQL statements (e.g. `INSERT INTO ...`) based on the mappings, without actually executing anything.
 
----
+## Open Questions
 
-## 2. Accept All Flat Files
-
-### Files Affected: `index.html`, `app.js`, `server.py`
-
-| Change | File |
-|--------|------|
-| Change `accept=".csv"` → `accept=".csv,.tsv,.txt,.dat,.pipe,.psv"` | `index.html` |
-| Rename all UI text from "CSV" → "Data File" or "File" | `index.html` |
-| Update parser to auto-detect separator from file extension | `app.js` |
-| Update ETL upload to accept all extensions | `server.py` |
-
-Auto-detection logic:
-- `.tsv` → `\t`
-- `.pipe`, `.psv` → `|`
-- `.csv`, `.txt`, `.dat` → read from the `Sep` input (default `,`)
-
----
-
-## 3. Assign Columns Page — Combine Col Letter + Name
-
-### Current: Three separate columns — `CSV Col Letter` | `CSV Col #` | `CSV Column Name`
-### New: One column — `Column` showing `A-1  columnName`
-
-This saves horizontal space and feels more natural.
-
----
-
-## 4. Redesign Data Profiling Cards
-
-### Current: Kaggle-style cards with Valid/Weird/Missing + bar chart
-### New: Compact profiling strips
-
-Each card becomes a horizontal strip showing:
-```
-| A-1 columnName | Number | ████░░ 95% filled | Samples: 105, 203, 55 |
-```
-
-Key design choices:
-- **Show 3-4 sample values** from each column so users can visualize actual data
-- **Quality indicator** is simplified to a single progress bar showing "% filled" (non-empty)
-- For **numeric** columns: show `Range: 5 – 980, Avg: 120`
-- For **text** columns: show `Avg length: 12, Max: 45`
-- Datatype uses simplified labels: `Number`, `Text`, `Date`, `Boolean`
-
-> [!IMPORTANT]  
-> This removes the "Valid / Weird / Non-ASCII / Missing" Kaggle-style breakdown and replaces it with a simpler "X% filled" metric + sample data.
-
----
-
-## 5. Data Card Inferred Types → Simplified
-
-| Old | New |
-|-----|-----|
-| `Integer` | `Number` |
-| `Decimal` | `Number` |
-| `URL` | `Text` |
-| `Email` | `Text` |
-| `Date / Time` | `Date` |
-| `Text` | `Text` |
-
-The profiler still detects URL/Email/Date internally but displays user-friendly categories.
-
----
-
-## 6. DB Datatype Column → Read-Only from Schema
-
-### Current: Editable `<select>` dropdown with 20+ options
-### New: Read-only `<span>` showing the simplified DB type
-
-- Grey background, no interaction
-- If the inferred type **doesn't match** the DB type (e.g., the column contains text but DB expects Number), the cell turns **red** to alert the user
-- The `friendlyType()` function maps granular MySQL types to simple labels:
-  - `int`, `bigint`, `smallint`, `tinyint` → `Number`
-  - `varchar(N)`, `text`, `char(N)` → `Text`
-  - `date`, `datetime`, `datetime2` → `Date`
-  - `decimal`, `float`, `double` → `Decimal`
-  - `bit` → `Boolean`
-
----
-
-## 7. Auto-hide Auto-Increment on INSERT / Show on UPDATE
-
-### For INSERT mode:
-- Filter out columns where `identity === true` or `autoincrement === true` from the DB column dropdown
-- These columns don't appear because the DB generates them
-
-### For UPDATE/UPSERT mode:
-- Show all columns including identity/auto-increment
-- Highlight the PK/unique columns with a gold accent border to indicate "this is the row ID you should match on"
-
----
-
-## 8. Remove All "CSV" References
-
-Global find-replace across HTML and JS:
-- "CSV Column" → "Column"  
-- "CSV Columns" → "Source Columns"
-- "CSV Col Letter" → removed (combined into Column)
-- "CSV Col #" → removed (combined into Column)
-- "Upload CSV File" → "Upload File"
-- ".csv" references → "flat file"
-
----
+1. **Direct DB Connect Requirement**: To map columns correctly, the tool *must* know the schema (table definitions). If a user selects "Generate JSON" or "Generate SQL" but does *not* connect to a database, how should we know the target table names and columns? 
+   * *Option A:* Let them manually type the target table names and column names in the UI. 
+   * *Option B:* The JSON/SQL options are only available *after* they connect to a database to fetch the schema, but instead of committing, they just export.
+   * *Option C:* We use the existing dummy/static schema fallback if they don't connect.
+   * Let me know which flow you prefer!
 
 ## Verification Plan
-
-### Manual Verification
-1. Load a `.tsv` file and verify it auto-detects tab separator
-2. Load a `.csv` and verify the profiling cards show sample data  
-3. Switch between INSERT and UPDATE modes and verify identity columns show/hide
-4. Verify DB Datatype is greyed out and shows red when mismatched
-5. Verify the Mode toggle is vertically aligned with Operation and Table
+1. Launch `server.py` and open `index.html`.
+2. Visually verify the new "Output Destination" toggles.
+3. Test "Connect to Database" by entering SQLite or an invalid MySQL connection to ensure errors are handled and the session persists correctly.
+4. Verify that "Generate SQL" produces properly formatted `INSERT` statements.

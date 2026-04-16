@@ -1,7 +1,7 @@
 # Project Status Report: datamig
 
 **Target Audience**: Next AI Agent / Developer
-**Last Updated**: 2026-04-11
+**Last Updated**: 2026-04-16
 
 ## Project Overview
 **Name**: datamig (Data Migration Tool)
@@ -11,7 +11,7 @@
 ## Current Technical Stack
 | Layer | Technology | File(s) | Lines |
 |-------|-----------|---------|-------|
-| **Frontend** | Vanilla HTML, CSS, JavaScript | `index.html`, `index.css`, `app.js` | 371 + 2,466 + 1,338 |
+| **Frontend** | Vanilla HTML, CSS, JavaScript | `index.html`, `index.css`, `app.js` | ~495 + ~2,660 + ~1,632 |
 | **Backend** | Python 3.12 + FastAPI + Uvicorn | `server.py` | 522 |
 | **ORM / DB** | SQLAlchemy 2.0 (database-agnostic) | `server.py` | — |
 | **Database** | MySQL 8.0 (Docker container `datamig-mysql`) | `setup-db.sql` | — |
@@ -193,14 +193,52 @@ The frontend sends this JSON as a form field alongside the raw file:
 - [x] Lookup feature removal
 - [x] Dropdown font-size fix
 
-## Known Issues
-- None currently reported. All bugs raised in this session have been resolved.
+## Known Issues & Debugging Needed
+- ~~**Settings Page**: Testing connection failure still shows green connection status.~~ **FIXED** — Badge now resets to "Not Connected" with red styling on failure, and `sessionId` is cleared.
+- ~~**Settings Page**: Changing database type layout inconsistency.~~ **FIXED** — Dialect toggle now uses `display: grid` for MySQL to ensure consistent layout restoration.
+- ~~**Import Data Page**: Font sizes in dropdowns too large.~~ **FIXED** — CSS specificity increased (`.select-wrapper.select-wrapper--sm`) to properly override generic select styles.
+- ~~**Import Data Page**: Need graceful handling if no DB connected.~~ **FIXED** — "Connect to a Database" overlay with "Go to Settings" button now blocks Import until a session is established.
+- ~~**Summary Section**: Remove "Weird 0 (0%)" from display.~~ **FIXED** — Weird and Missing stats now only display when their count is > 0.
+- ~~**Start Over does not redirect to Import landing page**.~~ **FIXED** — `goToImportPage()` restructured to hide sections via defensive `getElementById()` calls FIRST, then call `resetAll()` in a try-catch. Verified working on 2026-04-16.
+- ~~**JSON Output page has no Start Over button**.~~ **FIXED** — Added Start Over button to JSON Output action bar alongside "← Back to Validation".
+- ~~**Mini SVG charts in profiling strips are too small and not helpful**.~~ **FIXED** — Replaced with Unicode block sparklines (▁▂▃▄▅▆▇█) + contextual stats (μ, σ, unique count, top value).
 
-## Immediate Next Steps
-1. **Git commit** — Many files are untracked. Commit `server.py`, `setup-db.sql`, `requirements.txt`, test data files, and all frontend changes.
-2. **Large-file stress test** — Generate a 1M+ row CSV and test the full pipeline for memory and throughput.
-3. **UPDATE / UPSERT operations** — Implement the full logic for UPDATE and UPSERT operations (joining on unique keys). Server-side SQL generation exists but frontend UI for match-key selection is incomplete.
-4. **Multi-table assignment** — The drag-and-drop column assignment for multi-table mode needs further E2E testing.
-5. **Clean up `node_modules/`** — Run `rm -rf node_modules package-lock.json` (legacy from Express backend).
-6. **Authentication** — Add basic auth or API keys for production use.
-7. **Fixed-width file support** — Implement parsing logic for fixed-width flat files.
+## Immediate Next Steps (To-Do for Next Model)
+1. ~~**Landing Page Flow**~~ — **DONE** — Connect-first overlay blocks Import until database is connected via Settings.
+2. ~~**Post-Commit Home & History**~~ — **DONE** & **VERIFIED 2026-04-16** — "Start Over" button works in both the insert result modal AND the JSON Output page. `goToImportPage()` properly hides output/validation/assign sections and shows the Import landing page.
+3. ~~**Data Profiling Visualizations**~~ — **DONE** & **VERIFIED 2026-04-16** — Unicode block sparklines with mean (μ), std dev (σ), unique count for Numbers; top value + frequency % for Text. Visually compact and informative.
+4. **Git commit** — Untracked files (`server.py`, `setup-db.sql`, etc.) need to be committed once stable.
+5. **UPDATE / UPSERT operations** — Implement full logic for these operations. Server-side SQL exists but frontend UI for match-key selection is incomplete.
+6. **Multi-table assignment** — Drag-and-drop column assignment for multi-table mode needs further testing.
+7. **Relational Multi-Table Insertion (Parent-Child Hierarchy)** — Currently, the ETL pipeline performs independent bulk inserts for each mapped table without maintaining relational integrity (e.g., it does not dynamically link a newly inserted parent row's auto-increment ID to a child row's foreign key column). The architecture must be updated to support defining table hierarchies in the UI (Parent vs Child), capturing `LAST_INSERT_ID` or using `RETURNING` clauses during sequential inserts, and mapping generated IDs back to the child table inserts.
+
+## Recent Changes (Session — 2026-04-15)
+
+### Bug Fixes
+1. **Settings badge on failure** — Connection failure now correctly resets badge to "Not Connected" (red) and clears `sessionId`.
+2. **Dialect toggle layout** — Switching from SQLite back to MySQL now properly restores the grid layout for host/credential rows.
+3. **Dropdown font sizes** — Increased CSS specificity (`.select-wrapper.select-wrapper--sm select`) to properly override generic `.select-wrapper select` styles.
+4. **Summary "Weird 0"** — Quality stats (Weird, Missing) now only render when their count is greater than 0.
+
+### New Features
+5. **Connect-First Overlay** — A blurred glass overlay on the Import page blocks interaction until the user connects to a database via Settings. Includes a database icon, explanatory text, and a "Go to Settings" button that navigates to the Settings page. Overlay dismisses automatically when a session is established and schema loads.
+6. **History Page** — New "History" nav tab with a dedicated page showing a log of all migration operations. Each entry shows: file name → target tables, operation type (INSERT/UPDATE/UPSERT), row count, success/failure status, and timestamp. Includes "Clear History" button. Entries are styled with green ✓ / red ✗ icons.
+7. **Start Over Button** — Insert result modal now has a "Start Over" button (with home icon) alongside "Done". Clicking it resets the entire form and navigates back to the Import page.
+8. **Data Profiling Mini-Charts** — Inline SVG visualizations added to profiling strips:
+   - **Number columns**: Unicode sparklines (▁▂▃▄▅▆▇█) showing distribution density, plus stats like Unique Count, Mean (μ), and Standard Deviation (σ).
+   - **Text columns**: Sparklines showing frequency of the top 10 most common values, plus the top value string and its frequency percentage.
+   - Charts use datatype-color coding (blue for Number, green for Text).
+9. **Navigation System Update** — Page switching logic refactored to support Import, History, and Settings pages with proper display toggling and mainContent management.
+
+### Debugging Fixes (Session — 2026-04-16) — All Verified
+10. **Start Over Redirect Fix** — `goToImportPage()` restructured to use defensive `document.getElementById()` calls to hide all sections FIRST, then call `resetAll()` inside a try-catch. This ensures sections are hidden even if `resetAll()` throws. **VERIFIED**: Start Over from insert result modal correctly navigates away from JSON output to Import.
+11. **JSON Output Start Over Button** — Added a "Start Over" button with home icon to the Generated JSON Output page action bar (`#btn-output-startover`), wired to `goToImportPage()`. **VERIFIED**: Button visible and functional.
+12. **Sparkline Visual Redesign** — Replaced initial tiny SVG mini-charts (40x22px bars) with Unicode block character sparklines (▁▂▃▄▅▆▇█). Number columns show 10-bin distribution histograms with μ, σ, and unique count. Text columns show top-10 frequency sparklines with top value label. **VERIFIED**: Sparklines visible with hover tooltips.
+
+### Key Files Modified (Sessions 2026-04-15 + 2026-04-16)
+| File | Changes |
+|------|---------|
+| `app.js` | ~1,632 lines total — goToImportPage(), resetAll(), History system, connect overlay, Start Over handlers, Unicode sparklines, summary fixes, badge fix, nav update |
+| `index.html` | ~495 lines total — Connect overlay HTML, Start Over buttons (modal + JSON output), History page section |
+| `index.css` | ~2,660 lines total — Overlay styling, history entries, sparkline CSS, CSS specificity fixes |
+

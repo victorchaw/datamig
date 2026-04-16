@@ -549,14 +549,14 @@ body.api-connected .api-dot {
     letter-spacing: .04em;
 }
 
-.select-wrapper--sm select {
+.select-wrapper.select-wrapper--sm select {
     padding: .35rem 2rem .35rem .6rem;
     font-size: .75rem;
     height: 36px;
     box-sizing: border-box;
 }
 
-.select-wrapper--sm select option {
+.select-wrapper.select-wrapper--sm select option {
     font-size: .75rem;
 }
 
@@ -2464,4 +2464,196 @@ body.api-connected .api-dot {
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+/* ═══════════════════════ Settings page ═══════════════════════ */
+.settings-page {
+    padding: 2rem 1rem;
+}
+
+.settings-label {
+    display: block;
+    font-size: .78rem;
+    font-weight: 600;
+    color: var(--c-text-dim);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+}
+
+.settings-field .form-input,
+.settings-field select.form-input {
+    width: 100%;
+    padding: 8px 10px;
+    font-size: .85rem;
+    border: 1px solid var(--c-border);
+    border-radius: 6px;
+    background: var(--c-surface);
+    color: var(--c-text);
+    transition: border-color .2s, box-shadow .2s;
+}
+
+.settings-field .form-input:focus,
+.settings-field select.form-input:focus {
+    border-color: var(--c-primary);
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, .12);
+    outline: none;
+}
+
+.db-table-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 12px;
+    font-size: .78rem;
+    font-weight: 500;
+    color: var(--c-primary-d);
+    background: rgba(14, 165, 233, .08);
+    border: 1px solid rgba(14, 165, 233, .2);
+    border-radius: 20px;
+    transition: all .15s;
+}
+
+.db-table-chip svg {
+    width: 12px;
+    height: 12px;
+    stroke: var(--c-primary);
+    flex-shrink: 0;
+}
+
+.db-table-chip:hover {
+    background: rgba(14, 165, 233, .14);
+}
+
+/* Connection status animation */
+#db-connection-status.status-success {
+    color: #166534 !important;
+}
+
+#db-connection-status.status-fail {
+    color: #991b1b !important;
+}
+
+@keyframes pulse-badge {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.04); }
+}
+
+#db-connection-badge.connected {
+    background: #dcfce7 !important;
+    color: #166534 !important;
+    animation: pulse-badge .6s ease-out;
+}
+
+/* ═══════════════════════ Connect First Overlay ═══════════════════════ */
+.connect-first-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(240, 244, 248, .88);
+    backdrop-filter: blur(4px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    border-radius: var(--r-lg);
+    transition: opacity .3s ease;
+}
+
+.connect-first-overlay.hidden {
+    display: none;
+}
+
+.connect-first-content {
+    text-align: center;
+    padding: 2rem;
+}
+
+.migration-card {
+    position: relative;
+}
+
+/* ═══════════════════════ History Page ═══════════════════════ */
+.history-entry {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 14px;
+    background: var(--c-surface-2);
+    border: 1px solid var(--c-border);
+    border-radius: 10px;
+    transition: background .15s;
+}
+
+.history-entry:hover {
+    background: rgba(14, 165, 233, .04);
+}
+
+.history-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: .85rem;
+    font-weight: 700;
+}
+
+.history-icon.success {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.history-icon.error {
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+.history-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.history-title {
+    font-size: .82rem;
+    font-weight: 600;
+    color: var(--c-text);
+    margin: 0 0 2px;
+}
+
+.history-meta {
+    font-size: .72rem;
+    color: var(--c-text-light);
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.history-time {
+    font-size: .72rem;
+    color: var(--c-text-light);
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+/* ═══════════════════════ Profiling Sparklines & Stats ═══════════════════════ */
+.strip-sparkline {
+    font-size: .85rem;
+    letter-spacing: 0.5px;
+    line-height: 1;
+    margin-left: 6px;
+    vertical-align: middle;
+    cursor: help;
+    opacity: 0.85;
+    transition: opacity .2s;
+}
+.strip-sparkline:hover { opacity: 1; }
+
+.strip-stat-detail {
+    font-size: .68rem;
+    color: #94a3b8;
+    margin-left: 6px;
+    white-space: nowrap;
 }
