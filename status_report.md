@@ -208,9 +208,13 @@ The frontend sends this JSON as a form field alongside the raw file:
 2. ~~**Post-Commit Home & History**~~ — **DONE** & **VERIFIED 2026-04-16** — "Start Over" button works in both the insert result modal AND the JSON Output page. `goToImportPage()` properly hides output/validation/assign sections and shows the Import landing page.
 3. ~~**Data Profiling Visualizations**~~ — **DONE** & **VERIFIED 2026-04-16** — Unicode block sparklines with mean (μ), std dev (σ), unique count for Numbers; top value + frequency % for Text. Visually compact and informative.
 4. ~~**Git commit**~~ — **DONE** — Committed `c3ddd7c` and pushed to `main` on 2026-04-16. All files tracked including `seed.py`, `sql_testing_instructions.md`, `test_query.py`.
-5. **UPDATE / UPSERT operations** — Implement full logic for these operations. Server-side SQL exists but frontend UI for match-key selection is incomplete.
-6. **Multi-table assignment** — Drag-and-drop column assignment for multi-table mode needs further testing.
+5. ~~**UPDATE / UPSERT operations**~~ — **VERIFIED 2026-04-16** — Full frontend-to-backend flow confirmed working. Match key checkboxes appear on mapping page when operation is UPDATE or UPSERT. 🔑 icon shown on identity columns. Commit blocked with modal if no match key selected. Server SQL generation supports MySQL (`ON DUPLICATE KEY UPDATE`) and PostgreSQL (`ON CONFLICT ... DO UPDATE SET`).
+6. ~~**Multi-table assignment**~~ — **VERIFIED 2026-04-16** — Drag-and-drop column assignment works: select columns → drag to table drop zone → chips appear → Continue to Mapping. Per-table mapping with Next Table → flow. Commit sends all tables in one transaction.
 7. **Relational Multi-Table Insertion (Parent-Child Hierarchy)** — Currently, the ETL pipeline performs independent bulk inserts for each mapped table without maintaining relational integrity (e.g., it does not dynamically link a newly inserted parent row's auto-increment ID to a child row's foreign key column). The architecture must be updated to support defining table hierarchies in the UI (Parent vs Child), capturing `LAST_INSERT_ID` or using `RETURNING` clauses during sequential inserts, and mapping generated IDs back to the child table inserts.
+
+## Additional Fixes (Session — 2026-04-16 Evening)
+- **Connect-First Overlay Fix** — Overlay now dismisses when `apiConnected && schema.length > 0` instead of requiring explicit `sessionId`. This fixes the bug where the overlay blocked the Import page even when the server auto-connected at startup.
+- **Cache-Control Headers** — Added `no-store, no-cache, must-revalidate` headers to JS/CSS/HTML file responses in `server.py` to prevent browser caching issues during development.
 
 ## Recent Changes (Session — 2026-04-15)
 

@@ -1464,8 +1464,8 @@
     function updateConnectOverlay() {
         const overlay = $('connect-first-overlay');
         if (!overlay) return;
-        // Require explicit user connection via Settings (sessionId) to dismiss overlay
-        if (sessionId && Object.keys(DB_SCHEMA).length > 0) {
+        // Dismiss overlay when DB schema is loaded (either via auto-connect or explicit session)
+        if (apiConnected && Object.keys(DB_SCHEMA).length > 0) {
             overlay.classList.add('hidden');
         } else {
             overlay.classList.remove('hidden');

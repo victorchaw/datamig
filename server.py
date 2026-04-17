@@ -555,7 +555,11 @@ def serve_static(filename: str):
     """Serve any file from the project directory (JS, CSS, CSV, etc.)."""
     file_path = BASE_DIR / filename
     if file_path.is_file() and not filename.startswith((".", "venv", "node_modules", "__pycache__")):
-        return FileResponse(str(file_path))
+        resp = FileResponse(str(file_path))
+        # Prevent caching for dev assets
+        if filename.endswith((".js", ".css", ".html")):
+            resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return resp
     return FileResponse(str(BASE_DIR / "index.html"))
 
 
