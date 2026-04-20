@@ -615,19 +615,55 @@
                 matchKeyHtml = `<div style="margin-top:6px; padding:4px; background:rgba(245,158,11,0.05); border:1px solid rgba(245,158,11,0.2); border-radius:4px;"><label style="font-size:0.75rem; color:#b45309; display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" class="cb-match-key" data-row="${i}" ${map.isMatchKey ? 'checked' : ''}> Use as Match Key</label></div>`;
             }
 
+            // FK Lookup indicator — appears when column maps to a FK column in multi-table mode
+            let fkLookupHtml = '';
+            if (isMapped && map.isForeignKey && map.fkReferredTable && multiTableMode) {
+                const parentTbl = map.fkReferredTable;
+                const parentSchema = DB_SCHEMA[parentTbl];
+                const isParentInSession = tableAssignments.some(a => a.tableName === parentTbl);
+                if (isParentInSession && parentSchema) {
+                    // Build dropdown of parent table columns to match against
+                    let matchOpts = '<option value="">— select match column —</option>';
+                    parentSchema.columns.forEach(pc => {
+                        if (!pc.identity) {
+                            matchOpts += `<option value="${pc.name}"${pc.name === map.lookupMatchColumn ? ' selected' : ''}>${pc.name}</option>`;
+                        }
+                    });
+                    // Find the parent PK (referred column from FK definition)
+                    const fkDef = DB_SCHEMA[tbl]?.foreignKeys?.find(f => f.column === map.dbColName);
+                    const parentPK = fkDef ? fkDef.referredColumn : '';
+                    fkLookupHtml = `<div style="margin-top:6px; padding:6px 8px; background:rgba(99,102,241,0.06); border:1px solid rgba(99,102,241,0.2); border-radius:4px;">
+                        <div style="font-size:0.72rem; color:#4f46e5; display:flex; align-items:center; gap:4px; margin-bottom:4px;">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+                            🔗 FK Lookup → <b>${escHtml(parentTbl)}</b>.${escHtml(parentPK)}
+                        </div>
+                        <div style="display:flex; align-items:center; gap:6px;">
+                            <span style="font-size:0.68rem; color:#6366f1; white-space:nowrap;">Match by:</span>
+                            <select class="fk-match-select" data-row="${i}" data-parent-table="${escHtml(parentTbl)}" data-parent-pk="${escHtml(parentPK)}" style="font-size:0.72rem; padding:2px 4px; border:1px solid rgba(99,102,241,0.3); border-radius:3px; background:#fff; flex:1;">${matchOpts}</select>
+                        </div>
+                    </div>`;
+                }
+            }
+
             // DB Type — read-only span, red on mismatch
             const dbTypeDisplay = isMapped ? friendlyDbType(map.datatype) : '—';
             const mismatch = isMapped && map.datatype && !isTypeMatch(profile.inferredType, map.datatype);
             const dbTypeClass = mismatch ? 'db-type-badge db-type-mismatch' : 'db-type-badge';
 
             const dDis = !isMapped ? ' disabled' : '', dCls = hasCon ? 'default-input constraint-locked' : 'default-input', dRo = hasCon ? ' readonly' : '';
-            html += `<tr class="${rowClass}"><td><span class="col-combined"><span class="col-letter">${letter}-${num}</span> <span class="col-name-inline">${escHtml(map.csvName)}</span></span></td><td><span class="inferred-type-badge" style="background:${inferColor}">${profile.inferredType}</span></td><td class="arrow-col">→</td><td>${dbSel}${matchKeyHtml}</td><td><span class="${dbTypeClass}">${dbTypeDisplay}</span></td><td><input type="text" class="${dCls}" data-row="${i}" value="${escHtml(map.defaultValue)}" placeholder="None"${dDis}${dRo} /></td><td>${map.nullable ? `<input type="text" class="null-input" data-row="${i}" value="${escHtml(map.nullReplacement)}" placeholder="Value for NULL…" />` : '<span class="nullable-no">NOT NULL</span>'}</td></tr>`;
+            html += `<tr class="${rowClass}"><td><span class="col-combined"><span class="col-letter">${letter}-${num}</span> <span class="col-name-inline">${escHtml(map.csvName)}</span></span></td><td><span class="inferred-type-badge" style="background:${inferColor}">${profile.inferredType}</span></td><td class="arrow-col">→</td><td>${dbSel}${matchKeyHtml}${fkLookupHtml}</td><td><span class="${dbTypeClass}">${dbTypeDisplay}</span></td><td><input type="text" class="${dCls}" data-row="${i}" value="${escHtml(map.defaultValue)}" placeholder="None"${dDis}${dRo} /></td><td>${map.nullable ? `<input type="text" class="null-input" data-row="${i}" value="${escHtml(map.nullReplacement)}" placeholder="Value for NULL…" />` : '<span class="nullable-no">NOT NULL</span>'}</td></tr>`;
         });
         mappingTbody.innerHTML = html;
         mappingTbody.querySelectorAll('.db-col-map-select').forEach(s => s.addEventListener('change', onDbColumnChange));
 
         mappingTbody.querySelectorAll('.cb-match-key').forEach(s => s.addEventListener('change', e => { 
             columnMapping[parseInt(e.target.dataset.row)].isMatchKey = e.target.checked; 
+        }));
+        // FK Lookup match column selector
+        mappingTbody.querySelectorAll('.fk-match-select').forEach(s => s.addEventListener('change', e => {
+            const row = parseInt(e.target.dataset.row);
+            columnMapping[row].lookupMatchColumn = e.target.value;
+            columnMapping[row].fkParentPK = e.target.dataset.parentPk;
         }));
         mappingTbody.querySelectorAll('.default-input:not(.constraint-locked)').forEach(s => s.addEventListener('input', e => { columnMapping[parseInt(e.target.dataset.row)].defaultValue = e.target.value; renderPreview(); }));
         mappingTbody.querySelectorAll('.null-input').forEach(s => s.addEventListener('input', e => { columnMapping[parseInt(e.target.dataset.row)].nullReplacement = e.target.value; renderPreview(); }));
@@ -968,6 +1004,46 @@
         window.scrollTo({ top: 0, behavior: 'smooth' });
     });
 
+    /**
+     * Sort table assignments so parent tables come before child tables.
+     * Uses FK relationships from DB_SCHEMA to build a dependency graph and topological sort.
+     */
+    function sortTablesByFKDependency(assignments) {
+        if (assignments.length <= 1) return assignments;
+        const tableNames = new Set(assignments.map(a => a.tableName));
+        // Build dependency map: childTable -> Set of parentTables it depends on
+        const deps = {};
+        assignments.forEach(a => { deps[a.tableName] = new Set(); });
+        for (const a of assignments) {
+            const schema = DB_SCHEMA[a.tableName];
+            if (schema && schema.foreignKeys) {
+                for (const fk of schema.foreignKeys) {
+                    if (tableNames.has(fk.referredTable) && fk.referredTable !== a.tableName) {
+                        deps[a.tableName].add(fk.referredTable);
+                    }
+                }
+            }
+        }
+        // Topological sort (Kahn's algorithm)
+        const sorted = [];
+        const remaining = [...assignments];
+        let safety = remaining.length + 1;
+        while (remaining.length > 0 && safety-- > 0) {
+            const idx = remaining.findIndex(a => deps[a.tableName].size === 0);
+            if (idx === -1) break; // circular dependency, keep original order
+            const item = remaining.splice(idx, 1)[0];
+            sorted.push(item);
+            for (const key of Object.keys(deps)) {
+                deps[key].delete(item.tableName);
+            }
+        }
+        sorted.push(...remaining);
+        if (sorted.length > 0) {
+            console.log('[FK Sort] Table order:', sorted.map(s => s.tableName).join(' -> '));
+        }
+        return sorted;
+    }
+
     btnAssignContinue.addEventListener('click', () => {
         try {
             const valid = tableAssignments.filter(a => a.tableName && a.columnIndices.length > 0);
@@ -975,7 +1051,9 @@
             if (valid.length === 0) { alert('Please assign at least some columns to a table.'); return; }
             
             const proceed = () => {
-                tableAssignments = valid;
+                // Auto-sort tables: parents before children based on FK relationships
+                const sorted = sortTablesByFKDependency(valid);
+                tableAssignments = sorted;
                 currentTableIdx = 0; allTableMappings = []; allTableProfiles = [];
                 console.log('[Continue] calling showValidationPage:', tableAssignments[0].tableName);
                 showValidationPage(tableAssignments[0].tableName, true);
@@ -1045,10 +1123,13 @@
                     .filter(m => m.isMapped)
                     .map(m => {
                         let obj = { csvColumn: m.csvName, dbColumn: m.dbColName };
-                        if (m.isLookup && m.lookupMatchColumn) {
-                            obj.isLookup = true;
-                            obj.lookupTable = m.lookupTable;
-                            obj.lookupMatchColumn = m.lookupMatchColumn;
+                        if (m.isForeignKey && m.lookupMatchColumn && m.fkReferredTable) {
+                            // FK Lookup: resolve FK value via parent table subquery
+                            obj.fkLookup = {
+                                parentTable: m.fkReferredTable,
+                                matchColumn: m.lookupMatchColumn,
+                                parentPK: m.fkParentPK || ''
+                            };
                         }
                         return obj;
                     })

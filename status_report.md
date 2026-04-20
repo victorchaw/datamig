@@ -210,11 +210,43 @@ The frontend sends this JSON as a form field alongside the raw file:
 4. ~~**Git commit**~~ — **DONE** — Committed `c3ddd7c` and pushed to `main` on 2026-04-16. All files tracked including `seed.py`, `sql_testing_instructions.md`, `test_query.py`.
 5. ~~**UPDATE / UPSERT operations**~~ — **VERIFIED 2026-04-16** — Full frontend-to-backend flow confirmed working. Match key checkboxes appear on mapping page when operation is UPDATE or UPSERT. 🔑 icon shown on identity columns. Commit blocked with modal if no match key selected. Server SQL generation supports MySQL (`ON DUPLICATE KEY UPDATE`) and PostgreSQL (`ON CONFLICT ... DO UPDATE SET`).
 6. ~~**Multi-table assignment**~~ — **VERIFIED 2026-04-16** — Drag-and-drop column assignment works: select columns → drag to table drop zone → chips appear → Continue to Mapping. Per-table mapping with Next Table → flow. Commit sends all tables in one transaction.
-7. **Relational Multi-Table Insertion (Parent-Child Hierarchy)** — Currently, the ETL pipeline performs independent bulk inserts for each mapped table without maintaining relational integrity (e.g., it does not dynamically link a newly inserted parent row's auto-increment ID to a child row's foreign key column). The architecture must be updated to support defining table hierarchies in the UI (Parent vs Child), capturing `LAST_INSERT_ID` or using `RETURNING` clauses during sequential inserts, and mapping generated IDs back to the child table inserts.
+7. ~~**Relational Multi-Table Insertion (Parent-Child Hierarchy)**~~ — **DONE & VERIFIED 2026-04-19** — Full FK lookup pipeline implemented. See details in Session 2026-04-19 below.
+
+## All Planned Features: COMPLETE ✅
+
+No remaining items from the original roadmap. All 7 planned features are implemented and verified.
+
+## Session — 2026-04-19: Relational Multi-Table Insertion
+
+### What Was Implemented
+
+**Backend (`server.py`):**
+- Added `fkLookup` support in the ETL pipeline's INSERT...SELECT generation
+- When a mapping entry includes `fkLookup: { parentTable, matchColumn, parentPK }`, the SQL generator produces a **correlated subquery** instead of a direct column reference:
+  ```sql
+  -- Instead of: NULLIF(TRIM(staging.country_name), '')
+  -- Generates:  (SELECT Countries.ct_ID FROM Countries 
+  --              WHERE Countries.ct_Name COLLATE utf8mb4_general_ci 
+  --              = NULLIF(TRIM(staging.country_name), '') COLLATE utf8mb4_general_ci LIMIT 1)
+  ```
+- Fixed **MySQL collation mismatch** (`utf8mb4_unicode_ci` vs `utf8mb4_0900_ai_ci`) between pandas-created staging tables and existing DB tables by adding `COLLATE utf8mb4_general_ci` to the WHERE clause
+
+**Frontend (`app.js`):**
+- **FK Lookup UI**: When a column maps to a FK column in multi-table mode, a styled purple/indigo indicator appears: `🔗 FK Lookup → ParentTable.parentPK` with a "Match by:" dropdown to select which parent column to match against
+- **FK Auto-Sort**: `sortTablesByFKDependency()` performs a topological sort (Kahn's algorithm) on table assignments using FK relationships from DB_SCHEMA, ensuring parent tables are always processed before children
+- **buildMappingConfig()**: Updated to include `fkLookup` data in the mapping config sent to the server
+
+### Test Results
+Verified with `test_relational.csv` (5 rows: brands with country names):
+- Countries: 5 rows inserted with auto-increment IDs ✅
+- Brands: 5 rows inserted with FK IDs correctly resolved via subquery ✅
+- Japan brands share same FK ID, Germany brands share same FK ID ✅
+- Data integrity confirmed via JOIN query ✅
 
 ## Additional Fixes (Session — 2026-04-16 Evening)
 - **Connect-First Overlay Fix** — Overlay now dismisses when `apiConnected && schema.length > 0` instead of requiring explicit `sessionId`. This fixes the bug where the overlay blocked the Import page even when the server auto-connected at startup.
 - **Cache-Control Headers** — Added `no-store, no-cache, must-revalidate` headers to JS/CSS/HTML file responses in `server.py` to prevent browser caching issues during development.
+
 
 ## Recent Changes (Session — 2026-04-15)
 

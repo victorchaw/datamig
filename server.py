@@ -401,7 +401,26 @@ async def etl_upload(
                 joins = []
                 for m in filtered_mappings:
                     csv_col = m["csvColumn"]
-                    select_exprs.append(f"NULLIF(TRIM({q}{staging_table}{q}.{q}{csv_col}{q}), '')")
+                    fk_lookup = m.get("fkLookup")
+                    if fk_lookup:
+                        # FK Lookup: resolve FK value via subquery against parent table
+                        # e.g. (SELECT ct_ID FROM Countries WHERE ct_Name = staging.testCountries LIMIT 1)
+                        parent_tbl = fk_lookup["parentTable"]
+                        match_col = fk_lookup["matchColumn"]
+                        parent_pk = fk_lookup["parentPK"]
+                        staging_val = f"NULLIF(TRIM({q}{staging_table}{q}.{q}{csv_col}{q}), '')"
+                        # MySQL needs COLLATE to avoid mismatch between staging and parent tables
+                        collate = " COLLATE utf8mb4_general_ci" if eng.dialect.name == "mysql" else ""
+                        subquery = (
+                            f"(SELECT {q}{parent_tbl}{q}.{q}{parent_pk}{q} "
+                            f"FROM {q}{parent_tbl}{q} "
+                            f"WHERE {q}{parent_tbl}{q}.{q}{match_col}{q}{collate} = {staging_val}{collate} "
+                            f"LIMIT 1)"
+                        )
+                        select_exprs.append(subquery)
+                        print(f"[ETL] FK Lookup: {csv_col} -> {parent_tbl}.{parent_pk} via {match_col}")
+                    else:
+                        select_exprs.append(f"NULLIF(TRIM({q}{staging_table}{q}.{q}{csv_col}{q}), '')")
 
                 select_clause = ", ".join(select_exprs)
                 joins_clause = " ".join(joins)
