@@ -297,3 +297,17 @@ Verified with `test_relational.csv` (5 rows: brands with country names):
 ### 4. ~~FK Lookups Type Mismatch Block~~ — **FIXED ✅**
 **Issue:** Text→Number FK lookup mappings triggered red mismatch badges and blocked commits.
 **Fix:** `app.js` — FK columns (`map.isForeignKey`) now show purple "FK Lookup" badge and are excluded from type mismatch validation.
+
+### Newly Discovered UI Bugs (Post-Fix Refactor)
+
+#### 1. Missing Visual Feedback (No Strike-through)
+**Issue:** The source columns no longer appear greyed-out or struck-through once they are successfully assigned. They only display a small `1x` badge.
+**Root Cause:** In order to allow columns to be assigned to multiple tables, the previous fix completely removed the `isAssigned ? ' assigned' : ''` logic from the HTML generation string in `app.js`. Without the `.assigned` CSS class, the strikethrough visual feedback is gone.
+
+#### 2. No Drag-to-Move Between Destination Tables
+**Issue:** Users cannot drag an assigned column chip directly from one destination table box to another destination box.
+**Root Cause:** The JavaScript drag-and-drop listeners (`dragstart`) are currently only attached to elements inside the left-hand Source Column list. The blue assigned column chips rendered inside the destination table drop-zones lack the `draggable="true"` attribute and the necessary event handlers.
+
+#### 3. Duplicate Column Assignments in the Same Table
+**Issue:** A single source column can be dragged into the exact same destination table multiple times (e.g., pulling `testACC` into `Brands` twice).
+**Root Cause:** Because the global disable lock on the source column was removed, users can drag it infinitely. However, the drag `handleDrop` target logic in `app.js` lacks a validation check to ensure the dragged column isn't already present in that specific table's `columnIndices` array before accepting the drop.

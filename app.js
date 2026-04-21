@@ -778,11 +778,12 @@
         let leftHtml = `<div class="csv-col-select-all"><label class="select-all-label"><input type="checkbox" id="select-all-cb" /><span>Select All</span></label></div>`;
         parsedHeaders.forEach((h, i) => {
             const p = columnProfiles[i];
-            // Fix #2: Count how many tables this column is assigned to (allow multi-assignment)
+            // Count how many tables this column is assigned to (allow multi-assignment)
             const assignedCount = tableAssignments.filter(a => a.columnIndices.includes(i)).length;
+            const isAssigned = assignedCount > 0;
             const typeColor = { 'Number': 'rgba(14,165,233,.1); color:#0ea5e9', 'Date': 'rgba(99,102,241,.1); color:#6366f1', 'Text': 'rgba(16,185,129,.1); color:#10b981' }[p.inferredType] || 'rgba(100,116,139,.1); color:#64748b';
             const assignedBadge = assignedCount > 0 ? `<span style="font-size:0.6rem; background:rgba(14,165,233,0.15); color:#0284c7; padding:1px 5px; border-radius:8px; margin-left:4px;">${assignedCount}x</span>` : '';
-            leftHtml += `<div class="csv-col-item" data-idx="${i}"><input type="checkbox" data-idx="${i}" /><span class="col-letter">${colLetter(i)}-${i + 1}</span><span class="csv-col-item-name">${escHtml(h)}</span>${assignedBadge}<span class="csv-col-item-type" style="background:${typeColor}">${p.inferredType}</span></div>`;
+            leftHtml += `<div class="csv-col-item${isAssigned ? ' assigned' : ''}" data-idx="${i}"><input type="checkbox" data-idx="${i}" /><span class="col-letter">${colLetter(i)}-${i + 1}</span><span class="csv-col-item-name">${escHtml(h)}</span>${assignedBadge}<span class="csv-col-item-type" style="background:${typeColor}">${p.inferredType}</span></div>`;
         });
         csvColList.innerHTML = leftHtml;
 
@@ -792,7 +793,7 @@
             let opts = '<option value="" disabled>Select table…</option>';
             tableKeys.forEach(k => { opts += `<option value="${k}"${k === a.tableName ? ' selected' : ''}>${k}</option>`; });
             let chips = '';
-            a.columnIndices.forEach(ci => { chips += `<span class="assigned-chip" data-tidx="${tIdx}" data-cidx="${ci}">${colLetter(ci)}: ${escHtml(parsedHeaders[ci])}<button class="chip-remove" data-tidx="${tIdx}" data-cidx="${ci}">✕</button></span>`; });
+            a.columnIndices.forEach(ci => { chips += `<span class="assigned-chip" draggable="true" data-tidx="${tIdx}" data-cidx="${ci}">${colLetter(ci)}: ${escHtml(parsedHeaders[ci])}<button class="chip-remove" data-tidx="${tIdx}" data-cidx="${ci}">✕</button></span>`; });
             rightHtml += `<div class="table-drop-box" data-tidx="${tIdx}"><div class="table-drop-header"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg><select class="table-select" data-tidx="${tIdx}">${opts}</select><div style="display:flex; gap: 4px; margin-left:auto"><button class="btn-icon-sm btn-move-table-up" data-tidx="${tIdx}" ${tIdx === 0 ? 'disabled style="opacity: 0.3; cursor: default;"' : ''} aria-label="Move table up" title="Execute this table earlier"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18 15 12 9 6 15"></polyline></svg></button><button class="btn-icon-sm btn-move-table-down" data-tidx="${tIdx}" ${tIdx === tableAssignments.length - 1 ? 'disabled style="opacity: 0.3; cursor: default;"' : ''} aria-label="Move table down" title="Execute this table later"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg></button>${tableAssignments.length > 2 ? `<button class="btn-icon-sm btn-remove-table" data-tidx="${tIdx}" aria-label="Remove table"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>` : ''}</div></div><div class="table-drop-zone${a.columnIndices.length === 0 ? ' empty' : ''}" data-tidx="${tIdx}">${chips || '<span class="drop-hint">Drop columns here…</span>'}</div></div>`;
         });
         assignRight.innerHTML = rightHtml;
@@ -800,13 +801,17 @@
     }
 
     function getCheckedIndices() {
-        return [...csvColList.querySelectorAll('.csv-col-item:not(.assigned) input[type="checkbox"]:checked')]
+        return [...csvColList.querySelectorAll('.csv-col-item input[type="checkbox"]:checked')]
             .map(cb => parseInt(cb.dataset.idx))
             .filter(idx => !isNaN(idx));
     }
 
-    function assignColumnsToTable(tIdx, colIndices) {
-        tableAssignments.forEach(a => { a.columnIndices = a.columnIndices.filter(i => !colIndices.includes(i)); });
+    function assignColumnsToTable(tIdx, colIndices, keepOtherAssignments) {
+        // If not keeping other assignments, remove from all other tables first
+        if (!keepOtherAssignments) {
+            tableAssignments.forEach(a => { a.columnIndices = a.columnIndices.filter(i => !colIndices.includes(i)); });
+        }
+        // Add to target table, preventing duplicates within the same table
         colIndices.forEach(i => { if (!tableAssignments[tIdx].columnIndices.includes(i)) tableAssignments[tIdx].columnIndices.push(i); });
         tableAssignments[tIdx].columnIndices.sort((a, b) => a - b);
         renderAssignPage();
@@ -867,7 +872,7 @@
             }
 
             if (_dragState === 'selecting') {
-                const item = e.target.closest ? e.target.closest('.csv-col-item:not(.assigned)') : null;
+                const item = e.target.closest ? e.target.closest('.csv-col-item') : null;
                 if (item) {
                     const cb = item.querySelector('input[type="checkbox"]');
                     if (cb && cb.checked !== _dragSelectVal) {
@@ -921,7 +926,7 @@
         csvColList.addEventListener('mousedown', e => {
             // Skip clicks on the select-all row or actual checkbox inputs
             if (e.target.closest('.csv-col-select-all')) return;
-            const item = e.target.closest('.csv-col-item:not(.assigned)');
+            const item = e.target.closest('.csv-col-item');
             if (!item || e.target.tagName === 'INPUT') return;
             _dragStartX = e.clientX;
             _dragStartY = e.clientY;
@@ -934,8 +939,8 @@
     function updateSelectAllCheckbox() {
         const selectAllCb = document.getElementById('select-all-cb');
         if (!selectAllCb) return;
-        const allCbs = csvColList.querySelectorAll('.csv-col-item:not(.assigned) input[type="checkbox"]');
-        const checkedCbs = csvColList.querySelectorAll('.csv-col-item:not(.assigned) input[type="checkbox"]:checked');
+        const allCbs = csvColList.querySelectorAll('.csv-col-item input[type="checkbox"]');
+        const checkedCbs = csvColList.querySelectorAll('.csv-col-item input[type="checkbox"]:checked');
         selectAllCb.checked = allCbs.length > 0 && checkedCbs.length === allCbs.length;
         selectAllCb.indeterminate = checkedCbs.length > 0 && checkedCbs.length < allCbs.length;
     }
@@ -949,7 +954,7 @@
         if (selectAllCb) {
             selectAllCb.addEventListener('change', () => {
                 const shouldCheck = selectAllCb.checked;
-                csvColList.querySelectorAll('.csv-col-item:not(.assigned) input[type="checkbox"]').forEach(cb => {
+                csvColList.querySelectorAll('.csv-col-item input[type="checkbox"]').forEach(cb => {
                     cb.checked = shouldCheck;
                     cb.closest('.csv-col-item').classList.toggle('selected', shouldCheck);
                 });
@@ -989,8 +994,48 @@
                 renderAssignPage();
             }
         }));
+        // Chip drag-to-move between tables (native HTML5 drag-and-drop)
+        assignRight.querySelectorAll('.assigned-chip[draggable]').forEach(chip => {
+            chip.addEventListener('dragstart', e => {
+                e.dataTransfer.setData('text/plain', JSON.stringify({
+                    fromTIdx: parseInt(chip.dataset.tidx),
+                    cIdx: parseInt(chip.dataset.cidx)
+                }));
+                e.dataTransfer.effectAllowed = 'move';
+                chip.style.opacity = '0.5';
+            });
+            chip.addEventListener('dragend', () => { chip.style.opacity = ''; });
+        });
+        assignRight.querySelectorAll('.table-drop-zone').forEach(zone => {
+            zone.addEventListener('dragover', e => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'move';
+                zone.closest('.table-drop-box').classList.add('drag-over');
+            });
+            zone.addEventListener('dragleave', e => {
+                zone.closest('.table-drop-box').classList.remove('drag-over');
+            });
+            zone.addEventListener('drop', e => {
+                e.preventDefault();
+                zone.closest('.table-drop-box').classList.remove('drag-over');
+                try {
+                    const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+                    const toTIdx = parseInt(zone.closest('.table-drop-box').dataset.tidx);
+                    if (data.fromTIdx !== toTIdx) {
+                        // Remove from source table
+                        tableAssignments[data.fromTIdx].columnIndices = tableAssignments[data.fromTIdx].columnIndices.filter(i => i !== data.cIdx);
+                        // Add to destination table (with dedup)
+                        if (!tableAssignments[toTIdx].columnIndices.includes(data.cIdx)) {
+                            tableAssignments[toTIdx].columnIndices.push(data.cIdx);
+                            tableAssignments[toTIdx].columnIndices.sort((a, b) => a - b);
+                        }
+                        renderAssignPage();
+                    }
+                } catch (err) { /* ignore non-chip drops */ }
+            });
+        });
         // Per-item checkbox direct clicks: sync highlight + select-all state
-        csvColList.querySelectorAll('.csv-col-item:not(.assigned) input[type="checkbox"]').forEach(cb => {
+        csvColList.querySelectorAll('.csv-col-item input[type="checkbox"]').forEach(cb => {
             cb.addEventListener('change', () => {
                 cb.closest('.csv-col-item').classList.toggle('selected', cb.checked);
                 updateSelectAllCheckbox();
