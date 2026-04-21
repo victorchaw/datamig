@@ -278,3 +278,22 @@ Verified with `test_relational.csv` (5 rows: brands with country names):
 | `index.html` | ~495 lines total — Connect overlay HTML, Start Over buttons (modal + JSON output), History page section |
 | `index.css` | ~2,660 lines total — Overlay styling, history entries, sparkline CSS, CSS specificity fixes |
 
+## Debugging & Fixing List (Session 2026-04-20) — ALL FIXED ✅
+
+### 1. ~~"Match keys not found" Error on UPDATE / UPSERT~~ — **FIXED ✅**
+**Issue:** UPDATE/UPSERT with auto-increment match key failed with "Match keys not found."
+**Fix:** `server.py` — `filtered_mappings` now retains auto-increment columns when used as `matchKey` for update/upsert. Still excluded from SET clause.
+**Verified:** UPDATE with `ct_ID` match key updated 2 rows successfully.
+
+### 2. ~~FK Lookups UI Doesn't Display~~ — **FIXED ✅**
+**Issue:** Columns disabled after first assignment, blocking FK lookup column sharing.
+**Fix:** `app.js` — Removed disabled state from assigned columns. Columns can now be assigned to multiple tables. Shows `Nx` badge indicating assignment count.
+
+### 3. ~~Orphaned tmp_staging_ Tables~~ — **FIXED ✅**
+**Issue:** Ghost staging tables in dropdowns after server crashes.
+**Fix:** `server.py` — Added `if table_name.startswith("tmp_staging_"): continue` in `get_schema()`.
+**Verified:** Schema API returns only real tables.
+
+### 4. ~~FK Lookups Type Mismatch Block~~ — **FIXED ✅**
+**Issue:** Text→Number FK lookup mappings triggered red mismatch badges and blocked commits.
+**Fix:** `app.js` — FK columns (`map.isForeignKey`) now show purple "FK Lookup" badge and are excluded from type mismatch validation.

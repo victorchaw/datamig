@@ -647,11 +647,13 @@
 
             // DB Type — read-only span, red on mismatch
             const dbTypeDisplay = isMapped ? friendlyDbType(map.datatype) : '—';
-            const mismatch = isMapped && map.datatype && !isTypeMatch(profile.inferredType, map.datatype);
-            const dbTypeClass = mismatch ? 'db-type-badge db-type-mismatch' : 'db-type-badge';
+            // Fix #4: FK lookup columns bypass type mismatch — subquery resolves the correct type
+            const mismatch = isMapped && map.datatype && !map.isForeignKey && !isTypeMatch(profile.inferredType, map.datatype);
+            const dbTypeClass = map.isForeignKey ? 'db-type-badge' : (mismatch ? 'db-type-badge db-type-mismatch' : 'db-type-badge');
+            const dbTypeFinal = map.isForeignKey && isMapped ? '<span class="db-type-badge" style="background:rgba(99,102,241,0.1); color:#6366f1;">FK Lookup</span>' : `<span class="${dbTypeClass}">${dbTypeDisplay}</span>`;
 
             const dDis = !isMapped ? ' disabled' : '', dCls = hasCon ? 'default-input constraint-locked' : 'default-input', dRo = hasCon ? ' readonly' : '';
-            html += `<tr class="${rowClass}"><td><span class="col-combined"><span class="col-letter">${letter}-${num}</span> <span class="col-name-inline">${escHtml(map.csvName)}</span></span></td><td><span class="inferred-type-badge" style="background:${inferColor}">${profile.inferredType}</span></td><td class="arrow-col">→</td><td>${dbSel}${matchKeyHtml}${fkLookupHtml}</td><td><span class="${dbTypeClass}">${dbTypeDisplay}</span></td><td><input type="text" class="${dCls}" data-row="${i}" value="${escHtml(map.defaultValue)}" placeholder="None"${dDis}${dRo} /></td><td>${map.nullable ? `<input type="text" class="null-input" data-row="${i}" value="${escHtml(map.nullReplacement)}" placeholder="Value for NULL…" />` : '<span class="nullable-no">NOT NULL</span>'}</td></tr>`;
+            html += `<tr class="${rowClass}"><td><span class="col-combined"><span class="col-letter">${letter}-${num}</span> <span class="col-name-inline">${escHtml(map.csvName)}</span></span></td><td><span class="inferred-type-badge" style="background:${inferColor}">${profile.inferredType}</span></td><td class="arrow-col">→</td><td>${dbSel}${matchKeyHtml}${fkLookupHtml}</td><td>${dbTypeFinal}</td><td><input type="text" class="${dCls}" data-row="${i}" value="${escHtml(map.defaultValue)}" placeholder="None"${dDis}${dRo} /></td><td>${map.nullable ? `<input type="text" class="null-input" data-row="${i}" value="${escHtml(map.nullReplacement)}" placeholder="Value for NULL…" />` : '<span class="nullable-no">NOT NULL</span>'}</td></tr>`;
         });
         mappingTbody.innerHTML = html;
         mappingTbody.querySelectorAll('.db-col-map-select').forEach(s => s.addEventListener('change', onDbColumnChange));
@@ -775,9 +777,12 @@
         // Select-all checkbox row + column items
         let leftHtml = `<div class="csv-col-select-all"><label class="select-all-label"><input type="checkbox" id="select-all-cb" /><span>Select All</span></label></div>`;
         parsedHeaders.forEach((h, i) => {
-            const p = columnProfiles[i]; const isAssigned = allAssigned.has(i);
+            const p = columnProfiles[i];
+            // Fix #2: Count how many tables this column is assigned to (allow multi-assignment)
+            const assignedCount = tableAssignments.filter(a => a.columnIndices.includes(i)).length;
             const typeColor = { 'Number': 'rgba(14,165,233,.1); color:#0ea5e9', 'Date': 'rgba(99,102,241,.1); color:#6366f1', 'Text': 'rgba(16,185,129,.1); color:#10b981' }[p.inferredType] || 'rgba(100,116,139,.1); color:#64748b';
-            leftHtml += `<div class="csv-col-item${isAssigned ? ' assigned' : ''}" data-idx="${i}"><input type="checkbox" data-idx="${i}" ${isAssigned ? 'disabled' : ''}/><span class="col-letter">${colLetter(i)}-${i + 1}</span><span class="csv-col-item-name">${escHtml(h)}</span><span class="csv-col-item-type" style="background:${typeColor}">${p.inferredType}</span></div>`;
+            const assignedBadge = assignedCount > 0 ? `<span style="font-size:0.6rem; background:rgba(14,165,233,0.15); color:#0284c7; padding:1px 5px; border-radius:8px; margin-left:4px;">${assignedCount}x</span>` : '';
+            leftHtml += `<div class="csv-col-item" data-idx="${i}"><input type="checkbox" data-idx="${i}" /><span class="col-letter">${colLetter(i)}-${i + 1}</span><span class="csv-col-item-name">${escHtml(h)}</span>${assignedBadge}<span class="csv-col-item-type" style="background:${typeColor}">${p.inferredType}</span></div>`;
         });
         csvColList.innerHTML = leftHtml;
 
@@ -1167,6 +1172,8 @@
 
         // Block commit if type mismatches exist
         const mismatches = mapped.filter(m => {
+            // Fix #4: FK lookup columns are exempt from type mismatch — subquery resolves to correct type
+            if (m.isForeignKey) return false;
             const profile = columnProfiles.find(p => p.colIdx === m.csvIndex);
             return profile && m.datatype && !isTypeMatch(profile.inferredType, m.datatype);
         });

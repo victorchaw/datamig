@@ -150,6 +150,9 @@ def get_schema(x_session_id: str = Header(None)):
         schema: dict = {}
 
         for table_name in table_names:
+            # Fix #3: Skip orphaned staging tables from crashed ETL runs
+            if table_name.startswith("tmp_staging_"):
+                continue
             columns = insp.get_columns(table_name)
             pk_cols = set(insp.get_pk_constraint(table_name).get("constrained_columns", []))
 
@@ -388,7 +391,15 @@ async def etl_upload(
                         auto_cols.add(col["name"])
 
                 # Filter out auto-increment columns from mappings
-                filtered_mappings = [m for m in mappings if m["dbColumn"] not in auto_cols]
+                # Fix #1: Keep auto-increment columns if they are used as match keys for UPDATE/UPSERT
+                op = tbl_config.get("operation", "insert")
+                match_keys = tbl_config.get("matchKeys", [])
+                filtered_mappings = [
+                    m for m in mappings
+                    if m["dbColumn"] not in auto_cols or (
+                        op in ["update", "upsert"] and m["dbColumn"] in match_keys
+                    )
+                ]
 
                 if not filtered_mappings:
                     has_error = True
