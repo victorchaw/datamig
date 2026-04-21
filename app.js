@@ -782,8 +782,7 @@
             const assignedCount = tableAssignments.filter(a => a.columnIndices.includes(i)).length;
             const isAssigned = assignedCount > 0;
             const typeColor = { 'Number': 'rgba(14,165,233,.1); color:#0ea5e9', 'Date': 'rgba(99,102,241,.1); color:#6366f1', 'Text': 'rgba(16,185,129,.1); color:#10b981' }[p.inferredType] || 'rgba(100,116,139,.1); color:#64748b';
-            const assignedBadge = assignedCount > 0 ? `<span style="font-size:0.6rem; background:rgba(14,165,233,0.15); color:#0284c7; padding:1px 5px; border-radius:8px; margin-left:4px;">${assignedCount}x</span>` : '';
-            leftHtml += `<div class="csv-col-item${isAssigned ? ' assigned' : ''}" data-idx="${i}"><input type="checkbox" data-idx="${i}" /><span class="col-letter">${colLetter(i)}-${i + 1}</span><span class="csv-col-item-name">${escHtml(h)}</span>${assignedBadge}<span class="csv-col-item-type" style="background:${typeColor}">${p.inferredType}</span></div>`;
+            leftHtml += `<div class="csv-col-item${isAssigned ? ' assigned' : ''}" data-idx="${i}"><input type="checkbox" data-idx="${i}" /><span class="col-letter">${colLetter(i)}-${i + 1}</span><span class="csv-col-item-name">${escHtml(h)}</span><span class="csv-col-item-type" style="background:${typeColor}">${p.inferredType}</span></div>`;
         });
         csvColList.innerHTML = leftHtml;
 
@@ -961,8 +960,19 @@
             });
         }
 
-        // Table select
-        assignRight.querySelectorAll('.table-select').forEach(s => s.addEventListener('change', e => { tableAssignments[parseInt(e.target.dataset.tidx)].tableName = e.target.value; }));
+        // Table select — prevent duplicate table selections
+        assignRight.querySelectorAll('.table-select').forEach(s => s.addEventListener('change', e => {
+            const tIdx = parseInt(e.target.dataset.tidx);
+            const newVal = e.target.value;
+            const isDuplicate = tableAssignments.some((a, i) => i !== tIdx && a.tableName === newVal);
+            if (isDuplicate) {
+                // Revert selection and warn
+                e.target.value = tableAssignments[tIdx].tableName || '';
+                showBlockingModal('Duplicate Table', `<b>${newVal}</b> is already selected in another destination. Each table can only appear once.`);
+                return;
+            }
+            tableAssignments[tIdx].tableName = newVal;
+        }));
         // Remove table
         assignRight.querySelectorAll('.btn-remove-table').forEach(b => b.addEventListener('click', e => {
             const idx = parseInt(e.currentTarget.dataset.tidx); tableAssignments.splice(idx, 1); renderAssignPage();

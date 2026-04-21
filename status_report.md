@@ -309,3 +309,11 @@ Verified with `test_relational.csv` (5 rows: brands with country names):
 #### 3. ~~Duplicate Column Assignments~~ — **FIXED ✅**
 **Fix:** `assignColumnsToTable()` already had `includes()` dedup check. Removed `:not(.assigned)` filters from all selectors so columns remain interactive after assignment.
 
+### Outstanding UI Issues (Session 2026-04-20 Round 2) — ALL FIXED ✅
+
+#### 1. ~~Duplicate Table Selection in Dropdowns~~ — **FIXED ✅**
+**Fix:** Added duplicate validation to `.table-select` change handler. If a table is already selected elsewhere, the selection reverts and a blocking modal warns the user.
+
+#### 2. ~~Unnecessary Assignment Count Badge~~ — **FIXED ✅**
+**Fix:** Removed the `Nx` badge HTML generation. Strikethrough styling is sufficient visual feedback.
+
