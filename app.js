@@ -1690,6 +1690,17 @@
                 if (statusSpan) { statusSpan.textContent = '✗ ' + friendlyError(err.message); statusSpan.className = 'status-fail'; }
                 if (badge) { badge.textContent = 'Not Connected'; badge.className = ''; badge.style.cssText = 'background:#fef2f2; color:#991b1b; font-size:0.75rem; padding:4px 10px; border-radius:20px;'; }
                 sessionId = null;
+                // Reset global connection state so UI reflects disconnected status
+                apiConnected = false;
+                DB_SCHEMA = {};
+                updateConnectOverlay();
+                // Update the top nav connection indicators
+                const navStatusEl = document.getElementById('api-status');
+                const navStatusText = navStatusEl ? navStatusEl.querySelector('.api-status-text') : null;
+                const navApiDot = document.querySelector('.api-dot');
+                if (navStatusEl) { navStatusEl.className = 'api-status disconnected'; }
+                if (navStatusText) { navStatusText.textContent = 'Offline'; }
+                if (navApiDot) { navApiDot.style.background = 'var(--c-danger, #ef4444)'; }
                 showToast('error', 'Connection Error', friendlyError(err.message), 6000);
             } finally {
                 btn.innerHTML = origHTML;

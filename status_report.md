@@ -317,3 +317,9 @@ Verified with `test_relational.csv` (5 rows: brands with country names):
 #### 2. ~~Unnecessary Assignment Count Badge~~ — **FIXED ✅**
 **Fix:** Removed the `Nx` badge HTML generation. Strikethrough styling is sufficient visual feedback.
 
+### Outstanding UI Issues (Session 2026-04-21 Round 3) — ALL FIXED ✅
+
+#### 1. ~~Connection Failure Does Not Reset Global State~~ — **FIXED ✅**
+**Issue:** After a successful connection, a failed re-connection attempt left the nav bar green ("Connected") and `DB_SCHEMA` populated with stale data.
+**Fix:** `app.js` — The `catch` block in `btnDbConnect` now explicitly sets `apiConnected = false`, clears `DB_SCHEMA = {}`, calls `updateConnectOverlay()`, and resets the nav bar status elements (`.api-status`, `.api-status-text`, `.api-dot`) to disconnected/offline state.
+
