@@ -1,0 +1,14 @@
+INFO:     Started server process [28898]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:4000 (Press CTRL+C to quit)
+
+  ┌─────────────────────────────────────────┐
+  │  datamig API running on port 4000        │
+  │  http://localhost:4000                  │
+  │  Swagger docs: http://localhost:4000/docs │
+  │  Database: mysql                      │
+  └─────────────────────────────────────────┘
+
+[CONNECT] Session 4b814a81… → mysql
+INFO:     127.0.0.1:57947 - "POST /api/connect HTTP/1.1" 200 OK
